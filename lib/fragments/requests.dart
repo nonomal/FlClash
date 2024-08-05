@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
-import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
@@ -68,9 +66,6 @@ class _RequestsFragmentState extends State<RequestsFragment> {
             },
             icon: const Icon(Icons.search),
           ),
-          const SizedBox(
-            width: 8,
-          )
         ];
       },
     );
@@ -137,8 +132,8 @@ class _RequestsFragmentState extends State<RequestsFragment> {
                     vertical: 16,
                   ),
                   child: Wrap(
-                    runSpacing: 8,
-                    spacing: 8,
+                    runSpacing: 6,
+                    spacing: 6,
                     children: [
                       for (final keyword in state.keywords)
                         CommonChip(
@@ -156,7 +151,7 @@ class _RequestsFragmentState extends State<RequestsFragment> {
                   controller: _scrollController,
                   itemBuilder: (_, index) {
                     final connection = connections[index];
-                    return RequestItem(
+                    return ConnectionItem(
                       key: Key(connection.id),
                       connection: connection,
                       onClick: _addKeyword,
@@ -173,103 +168,6 @@ class _RequestsFragmentState extends State<RequestsFragment> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class RequestItem extends StatelessWidget {
-  final Connection connection;
-  final Function(String)? onClick;
-
-  const RequestItem({
-    super.key,
-    required this.connection,
-    this.onClick,
-  });
-
-  Future<ImageProvider?> _getPackageIcon(Connection connection) async {
-    return await app?.getPackageIcon(connection.metadata.process);
-  }
-
-  String _getRequestText(Metadata metadata) {
-    var text = "${metadata.network}://";
-    final ips = [
-      metadata.host,
-      metadata.destinationIP,
-    ].where((ip) => ip.isNotEmpty);
-    text += ips.join("/");
-    text += ":${metadata.destinationPort}";
-    return text;
-  }
-
-  String _getSourceText(Connection connection) {
-    final metadata = connection.metadata;
-    if (metadata.process.isEmpty) {
-      return connection.start.lastUpdateTimeDesc;
-    }
-    return "${metadata.process} · ${connection.start.lastUpdateTimeDesc}";
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListItem(
-      tileTitleAlignment: ListTileTitleAlignment.titleHeight,
-      leading: Platform.isAndroid
-          ? Container(
-              margin: const EdgeInsets.only(top: 4),
-              width: 48,
-              height: 48,
-              child: FutureBuilder<ImageProvider?>(
-                future: _getPackageIcon(connection),
-                builder: (_, snapshot) {
-                  if (!snapshot.hasData && snapshot.data == null) {
-                    return Container();
-                  } else {
-                    return Image(
-                      image: snapshot.data!,
-                      gaplessPlayback: true,
-                      width: 48,
-                      height: 48,
-                    );
-                  }
-                },
-              ),
-            )
-          : null,
-      title: Text(
-        _getRequestText(connection.metadata),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(
-            height: 12,
-          ),
-          Text(
-            _getSourceText(connection),
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-          Wrap(
-            runSpacing: 8,
-            spacing: 8,
-            children: [
-              for (final chain in connection.chains)
-                CommonChip(
-                  label: chain,
-                  onPressed: () {
-                    if (onClick == null) return;
-                    onClick!(chain);
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-        ],
       ),
     );
   }
@@ -375,8 +273,8 @@ class RequestsSearchDelegate extends SearchDelegate {
                   vertical: 16,
                 ),
                 child: Wrap(
-                  runSpacing: 8,
-                  spacing: 8,
+                  runSpacing: 6,
+                  spacing: 6,
                   children: [
                     for (final keyword in state.keywords)
                       CommonChip(
@@ -393,7 +291,7 @@ class RequestsSearchDelegate extends SearchDelegate {
               child: ListView.separated(
                 itemBuilder: (_, index) {
                   final connection = _results[index];
-                  return RequestItem(
+                  return ConnectionItem(
                     key: Key(connection.id),
                     connection: connection,
                     onClick: (value) {

@@ -15,8 +15,8 @@ class ProxyManager {
 
   DateTime? get startTime => _proxy.startTime;
 
-  Future<bool?> startProxy({required int port, String? args}) async {
-    return await _proxy.startProxy(port, args);
+  Future<bool?> startProxy({required int port}) async {
+    return await _proxy.startProxy(port);
   }
 
   Future<bool?> stopProxy() async {
@@ -26,20 +26,6 @@ class ProxyManager {
   Future<DateTime?> updateStartTime() async {
     if (_proxy is! Proxy) return null;
     return await (_proxy as Proxy).updateStartTime();
-  }
-
-  Future<bool?> setProtect(int fd) async {
-    if (_proxy is! Proxy) return null;
-    return await (_proxy as Proxy).setProtect(fd);
-  }
-
-  Future<bool?> startForeground({
-    required String title,
-    required String content,
-  }) async {
-    if (_proxy is! Proxy) return null;
-    return await (_proxy as Proxy)
-        .startForeground(title: title, content: content);
   }
 
   factory ProxyManager() {

@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:fl_clash/clash/clash.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
-import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -39,8 +37,9 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
       timer = Timer.periodic(
         const Duration(seconds: 1),
         (timer) {
-          connectionsNotifier.value = connectionsNotifier.value
-              .copyWith(connections: clashCore.getConnections());
+          connectionsNotifier.value = connectionsNotifier.value.copyWith(
+            connections: clashCore.getConnections(),
+          );
         },
       );
     });
@@ -65,7 +64,16 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
           ),
           const SizedBox(
             width: 8,
-          )
+          ),
+          IconButton(
+            onPressed: () {
+              clashCore.closeConnections();
+              connectionsNotifier.value = connectionsNotifier.value.copyWith(
+                connections: clashCore.getConnections(),
+              );
+            },
+            icon: const Icon(Icons.delete_sweep_outlined),
+          ),
         ];
       },
     );
@@ -92,7 +100,7 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
   }
 
   _handleBlockConnection(String id) {
-    clashCore.closeConnections(id);
+    clashCore.closeConnection(id);
     connectionsNotifier.value = connectionsNotifier.value
         .copyWith(connections: clashCore.getConnections());
   }
@@ -139,8 +147,8 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
                     vertical: 16,
                   ),
                   child: Wrap(
-                    runSpacing: 8,
-                    spacing: 8,
+                    runSpacing: 6,
+                    spacing: 6,
                     children: [
                       for (final keyword in state.keywords)
                         CommonChip(
@@ -162,7 +170,12 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
                       key: Key(connection.id),
                       connection: connection,
                       onClick: _addKeyword,
-                      onBlock: _handleBlockConnection,
+                      trailing: IconButton(
+                        icon: const Icon(Icons.block),
+                        onPressed: () {
+                          _handleBlockConnection(connection.id);
+                        },
+                      ),
                     );
                   },
                   separatorBuilder: (BuildContext context, int index) {
@@ -175,112 +188,6 @@ class _ConnectionsFragmentState extends State<ConnectionsFragment> {
               )
             ],
           );
-        },
-      ),
-    );
-  }
-}
-
-class ConnectionItem extends StatelessWidget {
-  final Connection connection;
-  final Function(String)? onClick;
-  final Function(String)? onBlock;
-
-  const ConnectionItem({
-    super.key,
-    required this.connection,
-    this.onClick,
-    this.onBlock,
-  });
-
-  Future<ImageProvider?> _getPackageIcon(Connection connection) async {
-    return await app?.getPackageIcon(connection.metadata.process);
-  }
-
-  String _getRequestText(Metadata metadata) {
-    var text = "${metadata.network}://";
-    final ips = [
-      metadata.host,
-      metadata.destinationIP,
-    ].where((ip) => ip.isNotEmpty);
-    text += ips.join("/");
-    text += ":${metadata.destinationPort}";
-    return text;
-  }
-
-  String _getSourceText(Connection connection) {
-    final metadata = connection.metadata;
-    if (metadata.process.isEmpty) {
-      return connection.start.lastUpdateTimeDesc;
-    }
-    return "${metadata.process} · ${connection.start.lastUpdateTimeDesc}";
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListItem(
-      tileTitleAlignment: ListTileTitleAlignment.titleHeight,
-      leading: Platform.isAndroid
-          ? Container(
-              margin: const EdgeInsets.only(top: 4),
-              width: 48,
-              height: 48,
-              child: FutureBuilder<ImageProvider?>(
-                future: _getPackageIcon(connection),
-                builder: (_, snapshot) {
-                  if (!snapshot.hasData && snapshot.data == null) {
-                    return Container();
-                  } else {
-                    return Image(
-                      image: snapshot.data!,
-                      gaplessPlayback: true,
-                      width: 48,
-                      height: 48,
-                    );
-                  }
-                },
-              ),
-            )
-          : null,
-      title: Text(
-        _getRequestText(connection.metadata),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(
-            height: 12,
-          ),
-          Text(
-            _getSourceText(connection),
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-          Wrap(
-            runSpacing: 8,
-            spacing: 8,
-            children: [
-              for (final chain in connection.chains)
-                CommonChip(
-                  label: chain,
-                  onPressed: () {
-                    if (onClick == null) return;
-                    onClick!(chain);
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(
-            height: 12,
-          ),
-        ],
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.block),
-        onPressed: () {
-          if (onBlock == null) return;
-          onBlock!(connection.id);
         },
       ),
     );
@@ -332,11 +239,11 @@ class ConnectionsSearchDelegate extends SearchDelegate {
     );
   }
 
-
   _handleBlockConnection(String id) {
-    clashCore.closeConnections(id);
-    connectionsNotifier.value = connectionsNotifier.value
-        .copyWith(connections: clashCore.getConnections());
+    clashCore.closeConnection(id);
+    connectionsNotifier.value = connectionsNotifier.value.copyWith(
+      connections: clashCore.getConnections(),
+    );
   }
 
   @override
@@ -394,8 +301,8 @@ class ConnectionsSearchDelegate extends SearchDelegate {
                   vertical: 16,
                 ),
                 child: Wrap(
-                  runSpacing: 8,
-                  spacing: 8,
+                  runSpacing: 6,
+                  spacing: 6,
                   children: [
                     for (final keyword in state.keywords)
                       CommonChip(
@@ -416,7 +323,12 @@ class ConnectionsSearchDelegate extends SearchDelegate {
                     key: Key(connection.id),
                     connection: connection,
                     onClick: _addKeyword,
-                    onBlock: _handleBlockConnection,
+                    trailing: IconButton(
+                      icon: const Icon(Icons.block),
+                      onPressed: () {
+                        _handleBlockConnection(connection.id);
+                      },
+                    ),
                   );
                 },
                 separatorBuilder: (BuildContext context, int index) {

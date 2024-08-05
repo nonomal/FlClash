@@ -2,68 +2,80 @@ package main
 
 import "C"
 import (
+	"context"
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/adapter/inbound"
-	ap "github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/common/batch"
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
+	cp "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/hub/route"
 	"github.com/metacubex/mihomo/listener"
 	"github.com/metacubex/mihomo/log"
+	rp "github.com/metacubex/mihomo/rules/provider"
 	"github.com/metacubex/mihomo/tunnel"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-type healthCheckSchema struct {
-	Enable         bool   `provider:"enable"`
-	URL            string `provider:"url"`
-	Interval       int    `provider:"interval"`
-	TestTimeout    int    `provider:"timeout,omitempty"`
-	Lazy           bool   `provider:"lazy,omitempty"`
-	ExpectedStatus string `provider:"expected-status,omitempty"`
-}
+//type healthCheckSchema struct {
+//	Enable         bool   `provider:"enable"`
+//	URL            string `provider:"url"`
+//	Interval       int    `provider:"interval"`
+//	TestTimeout    int    `provider:"timeout,omitempty"`
+//	Lazy           bool   `provider:"lazy,omitempty"`
+//	ExpectedStatus string `provider:"expected-status,omitempty"`
+//}
 
-type proxyProviderSchema struct {
-	Type          string `provider:"type"`
-	Path          string `provider:"path,omitempty"`
-	URL           string `provider:"url,omitempty"`
-	Proxy         string `provider:"proxy,omitempty"`
-	Interval      int    `provider:"interval,omitempty"`
-	Filter        string `provider:"filter,omitempty"`
-	ExcludeFilter string `provider:"exclude-filter,omitempty"`
-	ExcludeType   string `provider:"exclude-type,omitempty"`
-	DialerProxy   string `provider:"dialer-proxy,omitempty"`
+//type proxyProviderSchema struct {
+//	Type          string `provider:"type"`
+//	Path          string `provider:"path,omitempty"`
+//	URL           string `provider:"url,omitempty"`
+//	Proxy         string `provider:"proxy,omitempty"`
+//	Interval      int    `provider:"interval,omitempty"`
+//	Filter        string `provider:"filter,omitempty"`
+//	ExcludeFilter string `provider:"exclude-filter,omitempty"`
+//	ExcludeType   string `provider:"exclude-type,omitempty"`
+//	DialerProxy   string `provider:"dialer-proxy,omitempty"`
+//
+//	HealthCheck healthCheckSchema   `provider:"health-check,omitempty"`
+//	Override    ap.OverrideSchema   `provider:"override,omitempty"`
+//	Header      map[string][]string `provider:"header,omitempty"`
+//}
+//
+//type ruleProviderSchema struct {
+//	Type     string `provider:"type"`
+//	Behavior string `provider:"behavior"`
+//	Path     string `provider:"path,omitempty"`
+//	URL      string `provider:"url,omitempty"`
+//	Proxy    string `provider:"proxy,omitempty"`
+//	Format   string `provider:"format,omitempty"`
+//	Interval int    `provider:"interval,omitempty"`
+//}
 
-	HealthCheck healthCheckSchema   `provider:"health-check,omitempty"`
-	Override    ap.OverrideSchema   `provider:"override,omitempty"`
-	Header      map[string][]string `provider:"header,omitempty"`
-}
-
-type ruleProviderSchema struct {
-	Type     string `provider:"type"`
-	Behavior string `provider:"behavior"`
-	Path     string `provider:"path,omitempty"`
-	URL      string `provider:"url,omitempty"`
-	Proxy    string `provider:"proxy,omitempty"`
-	Format   string `provider:"format,omitempty"`
-	Interval int    `provider:"interval,omitempty"`
+type ConfigExtendedParams struct {
+	IsPatch      bool              `json:"is-patch"`
+	IsCompatible bool              `json:"is-compatible"`
+	SelectedMap  map[string]string `json:"selected-map"`
+	TestURL      *string           `json:"test-url"`
 }
 
 type GenerateConfigParams struct {
-	ProfilePath  *string           `json:"profile-path"`
-	Config       *config.RawConfig `json:"config" `
-	IsPatch      *bool             `json:"is-patch"`
-	IsCompatible *bool             `json:"is-compatible"`
+	ProfileId string               `json:"profile-id"`
+	Config    config.RawConfig     `json:"config" `
+	Params    ConfigExtendedParams `json:"params"`
 }
 
 type ChangeProxyParams struct {
@@ -76,23 +88,8 @@ type TestDelayParams struct {
 	Timeout   int64  `json:"timeout"`
 }
 
-type Delay struct {
-	Name  string `json:"name"`
-	Value int32  `json:"value"`
-}
-
-type Process struct {
-	Id       int64              `json:"id"`
-	Metadata *constant.Metadata `json:"metadata"`
-}
-
 type ProcessMapItem struct {
 	Id    int64  `json:"id"`
-	Value string `json:"value"`
-}
-
-type Now struct {
-	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
@@ -100,8 +97,12 @@ type ExternalProvider struct {
 	Name        string    `json:"name"`
 	Type        string    `json:"type"`
 	VehicleType string    `json:"vehicle-type"`
+	Count       int       `json:"count"`
+	Path        string    `json:"path"`
 	UpdateAt    time.Time `json:"update-at"`
 }
+
+var b, _ = batch.New[bool](context.Background(), batch.WithConcurrencyNum[bool](50))
 
 func restartExecutable(execPath string) {
 	var err error
@@ -152,27 +153,77 @@ func removeFile(path string) error {
 	return nil
 }
 
-func getRawConfigWithPath(path *string) *config.RawConfig {
-	if path == nil {
-		return config.DefaultRawConfig()
-	} else {
-		bytes, err := readFile(*path)
-		if err != nil {
-			log.Errorln("getProfile readFile error %v", err)
-			return config.DefaultRawConfig()
-		}
-		prof, err := config.UnmarshalRawConfig(bytes)
-		if err != nil {
-			log.Errorln("getProfile UnmarshalRawConfig error %v", err)
-			return config.DefaultRawConfig()
-		}
-		return prof
-	}
+func getProfilePath(id string) string {
+	return filepath.Join(constant.Path.HomeDir(), "profiles", id+".yaml")
 }
 
-func decorationConfig(profilePath *string, cfg config.RawConfig, compatible bool) *config.RawConfig {
-	prof := getRawConfigWithPath(profilePath)
-	overwriteConfig(prof, cfg, compatible)
+func getProfileProvidersPath(id string) string {
+	return filepath.Join(constant.Path.HomeDir(), "providers", id)
+}
+
+func getRawConfigWithId(id string) *config.RawConfig {
+	path := getProfilePath(id)
+	bytes, err := readFile(path)
+	if err != nil {
+		log.Errorln("profile is not exist")
+		return config.DefaultRawConfig()
+	}
+	prof, err := config.UnmarshalRawConfig(bytes)
+	if err != nil {
+		log.Errorln("unmarshalRawConfig error %v", err)
+		return config.DefaultRawConfig()
+	}
+	for _, mapping := range prof.ProxyProvider {
+		value, exist := mapping["path"].(string)
+		if !exist {
+			continue
+		}
+		mapping["path"] = filepath.Join(getProfileProvidersPath(id), value)
+	}
+	for _, mapping := range prof.RuleProvider {
+		value, exist := mapping["path"].(string)
+		if !exist {
+			continue
+		}
+		mapping["path"] = filepath.Join(getProfileProvidersPath(id), value)
+	}
+	return prof
+}
+
+func getExternalProvidersRaw() map[string]ExternalProvider {
+	externalProviders := make(map[string]ExternalProvider)
+	for n, p := range tunnel.Providers() {
+		if p.VehicleType() != cp.Compatible {
+			p := p.(*provider.ProxySetProvider)
+			externalProviders[n] = ExternalProvider{
+				Name:        n,
+				Type:        p.Type().String(),
+				VehicleType: p.VehicleType().String(),
+				Count:       p.Count(),
+				Path:        p.Vehicle().Path(),
+				UpdateAt:    p.UpdatedAt,
+			}
+		}
+	}
+	for n, p := range tunnel.RuleProviders() {
+		if p.VehicleType() != cp.Compatible {
+			p := p.(*rp.RuleSetProvider)
+			externalProviders[n] = ExternalProvider{
+				Name:        n,
+				Type:        p.Type().String(),
+				VehicleType: p.VehicleType().String(),
+				Count:       p.Count(),
+				Path:        p.Vehicle().Path(),
+				UpdateAt:    p.UpdatedAt,
+			}
+		}
+	}
+	return externalProviders
+}
+
+func decorationConfig(profileId string, cfg config.RawConfig) *config.RawConfig {
+	prof := getRawConfigWithId(profileId)
+	overwriteConfig(prof, cfg)
 	return prof
 }
 
@@ -322,28 +373,31 @@ func generateProxyGroupAndRule(proxyGroup *[]map[string]any, rule *[]string) {
 	*rule = computedRule
 }
 
-func overwriteConfig(targetConfig *config.RawConfig, patchConfig config.RawConfig, compatible bool) {
+func overwriteConfig(targetConfig *config.RawConfig, patchConfig config.RawConfig) {
 	targetConfig.ExternalController = patchConfig.ExternalController
 	targetConfig.ExternalUI = ""
 	targetConfig.Interface = ""
 	targetConfig.ExternalUIURL = ""
 	targetConfig.TCPConcurrent = patchConfig.TCPConcurrent
 	targetConfig.UnifiedDelay = patchConfig.UnifiedDelay
-	targetConfig.GeodataMode = false
+	//targetConfig.GeodataMode = false
 	targetConfig.IPv6 = patchConfig.IPv6
 	targetConfig.LogLevel = patchConfig.LogLevel
 	targetConfig.Port = 0
 	targetConfig.SocksPort = 0
+	targetConfig.KeepAliveInterval = patchConfig.KeepAliveInterval
 	targetConfig.MixedPort = patchConfig.MixedPort
 	targetConfig.FindProcessMode = patchConfig.FindProcessMode
 	targetConfig.AllowLan = patchConfig.AllowLan
 	targetConfig.Mode = patchConfig.Mode
 	targetConfig.Tun.Enable = patchConfig.Tun.Enable
 	targetConfig.Tun.Device = patchConfig.Tun.Device
-	//targetConfig.Tun.DNSHijack = patchConfig.Tun.DNSHijack
-	//targetConfig.Tun.Stack = patchConfig.Tun.Stack
+	targetConfig.Tun.DNSHijack = patchConfig.Tun.DNSHijack
+	targetConfig.Tun.Stack = patchConfig.Tun.Stack
 	targetConfig.GeodataLoader = patchConfig.GeodataLoader
 	targetConfig.Profile.StoreSelected = false
+	targetConfig.GeoXUrl = patchConfig.GeoXUrl
+	targetConfig.GlobalUA = patchConfig.GlobalUA
 	if targetConfig.DNS.Enable == false {
 		targetConfig.DNS = patchConfig.DNS
 	}
@@ -352,7 +406,7 @@ func overwriteConfig(targetConfig *config.RawConfig, patchConfig config.RawConfi
 	//} else if runtime.GOOS == "windows" {
 	//	targetConfig.DNS.NameServer = append(targetConfig.DNS.NameServer, dns.SystemDNSPlaceholder)
 	//}
-	if compatible == false {
+	if configParams.IsCompatible == false {
 		targetConfig.ProxyProvider = make(map[string]map[string]any)
 		targetConfig.RuleProvider = make(map[string]map[string]any)
 		generateProxyGroupAndRule(&targetConfig.ProxyGroup, &targetConfig.Rule)
@@ -388,16 +442,50 @@ func patchConfig(general *config.General) {
 	resolver.DisableIPv6 = !general.IPv6
 }
 
-func applyConfig(isPatch bool) {
+func patchSelectGroup() {
+	mapping := configParams.SelectedMap
+	if mapping == nil {
+		return
+	}
+	for name, proxy := range tunnel.ProxiesWithProviders() {
+		outbound, ok := proxy.(*adapter.Proxy)
+		if !ok {
+			continue
+		}
+
+		selector, ok := outbound.ProxyAdapter.(outboundgroup.SelectAble)
+		if !ok {
+			continue
+		}
+
+		selected, exist := mapping[name]
+		if !exist {
+			continue
+		}
+
+		selector.ForceSet(selected)
+	}
+}
+
+var applyLock sync.Mutex
+
+func applyConfig() error {
+	applyLock.Lock()
+	defer applyLock.Unlock()
 	cfg, err := config.ParseRawConfig(currentConfig)
 	if err != nil {
 		cfg, _ = config.ParseRawConfig(config.DefaultRawConfig())
 	}
-	if isPatch {
+	if configParams.TestURL != nil {
+		constant.DefaultTestURL = *configParams.TestURL
+	}
+	if configParams.IsPatch {
 		patchConfig(cfg.General)
 	} else {
-		executor.Shutdown()
+		closeConnections()
 		runtime.GC()
 		hub.UltraApplyConfig(cfg, true)
+		patchSelectGroup()
 	}
+	return err
 }

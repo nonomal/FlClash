@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:fl_clash/common/app_localizations.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/constant.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +41,9 @@ class Other {
     }
     final diff = timeStamp / 1000;
     final inHours = (diff / 3600).floor();
+    if (inHours > 99) {
+      return "99:59:59";
+    }
     final inMinutes = (diff / 60 % 60).floor();
     final inSeconds = (diff % 60).floor();
 
@@ -97,9 +102,9 @@ class Other {
 
   String getTrayIconPath() {
     if (Platform.isWindows) {
-      return "assets/images/app_icon.ico";
+      return "assets/images/icon.ico";
     } else {
-      return "assets/images/launch_icon.png";
+      return "assets/images/icon_monochrome.png";
     }
   }
 
@@ -171,7 +176,7 @@ class Other {
   }
 
   List<String> parseReleaseBody(String? body) {
-    if(body == null) return [];
+    if (body == null) return [];
     const pattern = r'- (.+?)\. \[.+?\]';
     final regex = RegExp(pattern);
     return regex
@@ -181,10 +186,32 @@ class Other {
         .toList();
   }
 
-  ViewMode getViewMode(double viewWidth){
+  ViewMode getViewMode(double viewWidth) {
     if (viewWidth <= maxMobileWidth) return ViewMode.mobile;
     if (viewWidth <= maxLaptopWidth) return ViewMode.laptop;
     return ViewMode.desktop;
+  }
+
+  int getColumns(ViewMode viewMode, int currentColumns) {
+    final targetColumnsArray = viewModeColumnsMap[viewMode]!;
+    if (targetColumnsArray.contains(currentColumns)) {
+      return currentColumns;
+    }
+    return targetColumnsArray.first;
+  }
+
+  String getColumnsTextForInt(int number){
+    return switch(number){
+      1 => appLocalizations.oneColumn,
+      2 => appLocalizations.twoColumns,
+      3 => appLocalizations.threeColumns,
+      4 => appLocalizations.fourColumns,
+      int() => throw UnimplementedError(),
+    };
+  }
+
+  String getBackupFileName(){
+    return "${appName}_backup_${DateTime.now().show}.zip";
   }
 }
 

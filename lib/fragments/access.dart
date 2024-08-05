@@ -23,23 +23,17 @@ class AccessFragment extends StatefulWidget {
 }
 
 class _AccessFragmentState extends State<AccessFragment> {
-  final packagesListenable = ValueNotifier<List<Package>>([]);
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 300), () async {
-        packagesListenable.value = await app?.getPackages() ?? [];
-      });
+      final appState = globalState.appController.appState;
+      if (appState.packages.isEmpty) {
+        Future.delayed(const Duration(milliseconds: 300), () async {
+          appState.packages = await app?.getPackages() ?? [];
+        });
+      }
     });
-  }
-
-
-  @override
-  void dispose() {
-    super.dispose();
-    packagesListenable.dispose();
   }
 
   Widget _buildAppProxyModePopup() {
@@ -112,60 +106,53 @@ class _AccessFragmentState extends State<AccessFragment> {
     );
   }
 
-  _buildSelectedAllButton({
-    required bool isAccessControl,
-    required bool isSelectedAll,
-    required List<String> allValueList,
-  }) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final tooltip = isSelectedAll
-          ? appLocalizations.cancelSelectAll
-          : appLocalizations.selectAll;
-      final commonScaffoldState =
-          context.findAncestorStateOfType<CommonScaffoldState>();
-      commonScaffoldState?.floatingActionButton = DisabledMask(
-        status: !isAccessControl,
-        child: AbsorbPointer(
-          absorbing: !isAccessControl,
-          child: FloatingActionButton (
-            tooltip: tooltip,
-            onPressed: () {
-              final config = globalState.appController.config;
-              final isAccept =
-                  config.accessControl.mode == AccessControlMode.acceptSelected;
-
-              if (isSelectedAll) {
-                config.accessControl = switch (isAccept) {
-                  true => config.accessControl.copyWith(
-                      acceptList: [],
-                    ),
-                  false => config.accessControl.copyWith(
-                      rejectList: [],
-                    ),
-                };
-              } else {
-                config.accessControl = switch (isAccept) {
-                  true => config.accessControl.copyWith(
-                      acceptList: allValueList,
-                    ),
-                  false => config.accessControl.copyWith(
-                      rejectList: allValueList,
-                    ),
-                };
-              }
-            },
-            child: isSelectedAll
-                ? const Icon(Icons.deselect)
-                : const Icon(Icons.select_all),
-          ),
-        ),
-      );
-    });
-  }
+  // Widget _buildSelectedAllButton({
+  //   required bool isAccessControl,
+  //   required bool isSelectedAll,
+  //   required List<String> allValueList,
+  // }) {
+  //   final tooltip = isSelectedAll
+  //       ? appLocalizations.cancelSelectAll
+  //       : appLocalizations.selectAll;
+  //   return AbsorbPointer(
+  //     absorbing: !isAccessControl,
+  //     child: FloatingActionButton(
+  //       tooltip: tooltip,
+  //       onPressed: () {
+  //         final config = globalState.appController.config;
+  //         final isAccept =
+  //             config.accessControl.mode == AccessControlMode.acceptSelected;
+  //
+  //         if (isSelectedAll) {
+  //           config.accessControl = switch (isAccept) {
+  //             true => config.accessControl.copyWith(
+  //                 acceptList: [],
+  //               ),
+  //             false => config.accessControl.copyWith(
+  //                 rejectList: [],
+  //               ),
+  //           };
+  //         } else {
+  //           config.accessControl = switch (isAccept) {
+  //             true => config.accessControl.copyWith(
+  //                 acceptList: allValueList,
+  //               ),
+  //             false => config.accessControl.copyWith(
+  //                 rejectList: allValueList,
+  //               ),
+  //           };
+  //         }
+  //       },
+  //       child: isSelectedAll
+  //           ? const Icon(Icons.deselect)
+  //           : const Icon(Icons.select_all),
+  //     ),
+  //   );
+  // }
 
   Widget _buildPackageList() {
-    return ValueListenableBuilder(
-      valueListenable: packagesListenable,
+    return Selector<AppState, List<Package>>(
+      selector: (_, appState) => appState.packages,
       builder: (_, packages, ___) {
         final accessControl = globalState.appController.config.accessControl;
         final acceptList = accessControl.acceptList;
@@ -213,11 +200,6 @@ class _AccessFragmentState extends State<AccessFragment> {
                 accessControlMode == AccessControlMode.acceptSelected
                     ? appLocalizations.accessControlAllowDesc
                     : appLocalizations.accessControlNotAllowDesc;
-            _buildSelectedAllButton(
-              isAccessControl: isAccessControl,
-              isSelectedAll: valueList.length == packageNameList.length,
-              allValueList: packageNameList,
-            );
             return DisabledMask(
               status: !isAccessControl,
               child: Column(
@@ -301,47 +283,43 @@ class _AccessFragmentState extends State<AccessFragment> {
                   ),
                   Expanded(
                     flex: 1,
-                    child: FadeBox(
-                      key: const Key("fade_box"),
-                      child: currentPackages.isEmpty
-                          ? const Center(
-                              child: CircularProgressIndicator(),
-                            )
-                          : ListView.builder(
-                              itemCount: currentPackages.length,
-                              itemBuilder: (_, index) {
-                                final package = currentPackages[index];
-                                return PackageListItem(
-                                  key: Key(package.packageName),
-                                  package: package,
-                                  value:
-                                      valueList.contains(package.packageName),
-                                  isActive: isAccessControl,
-                                  onChanged: (value) {
-                                    if (value == true) {
-                                      valueList.add(package.packageName);
-                                    } else {
-                                      valueList.remove(package.packageName);
-                                    }
-                                    final config =
-                                        globalState.appController.config;
-                                    if (accessControlMode ==
-                                        AccessControlMode.acceptSelected) {
-                                      config.accessControl =
-                                          config.accessControl.copyWith(
-                                        acceptList: valueList,
-                                      );
-                                    } else {
-                                      config.accessControl =
-                                          config.accessControl.copyWith(
-                                        rejectList: valueList,
-                                      );
-                                    }
-                                  },
-                                );
-                              },
-                            ),
-                    ),
+                    child: currentPackages.isEmpty
+                        ? const Center(
+                            child: CircularProgressIndicator(),
+                          )
+                        : ListView.builder(
+                            itemCount: currentPackages.length,
+                            itemBuilder: (_, index) {
+                              final package = currentPackages[index];
+                              return PackageListItem(
+                                key: Key(package.packageName),
+                                package: package,
+                                value: valueList.contains(package.packageName),
+                                isActive: isAccessControl,
+                                onChanged: (value) {
+                                  if (value == true) {
+                                    valueList.add(package.packageName);
+                                  } else {
+                                    valueList.remove(package.packageName);
+                                  }
+                                  final config =
+                                      globalState.appController.config;
+                                  if (accessControlMode ==
+                                      AccessControlMode.acceptSelected) {
+                                    config.accessControl =
+                                        config.accessControl.copyWith(
+                                      acceptList: valueList,
+                                    );
+                                  } else {
+                                    config.accessControl =
+                                        config.accessControl.copyWith(
+                                      rejectList: valueList,
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          ),
                   ),
                 ],
               ),

@@ -1,8 +1,7 @@
 // ignore_for_file: invalid_annotation_target
 
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/clash_config.dart';
-import 'package:fl_clash/models/connection.dart';
+import 'package:fl_clash/models/models.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'generated/ffi.g.dart';
@@ -10,12 +9,24 @@ part 'generated/ffi.g.dart';
 part 'generated/ffi.freezed.dart';
 
 @freezed
-class UpdateConfigParams with _$UpdateConfigParams {
-  const factory UpdateConfigParams({
-    @JsonKey(name: "profile-path") String? profilePath,
-    required ClashConfig config,
+class ConfigExtendedParams with _$ConfigExtendedParams {
+  const factory ConfigExtendedParams({
     @JsonKey(name: "is-patch") required bool isPatch,
     @JsonKey(name: "is-compatible") required bool isCompatible,
+    @JsonKey(name: "selected-map") required SelectedMap selectedMap,
+    @JsonKey(name: "test-url") required String testUrl,
+  }) = _ConfigExtendedParams;
+
+  factory ConfigExtendedParams.fromJson(Map<String, Object?> json) =>
+      _$ConfigExtendedParamsFromJson(json);
+}
+
+@freezed
+class UpdateConfigParams with _$UpdateConfigParams {
+  const factory UpdateConfigParams({
+    @JsonKey(name: "profile-id") required String profileId,
+    required ClashConfig config,
+    required ConfigExtendedParams params,
   }) = _UpdateConfigParams;
 
   factory UpdateConfigParams.fromJson(Map<String, Object?> json) =>
@@ -34,14 +45,25 @@ class ChangeProxyParams with _$ChangeProxyParams {
 }
 
 @freezed
-class Message with _$Message {
-  const factory Message({
-    required MessageType type,
+class AppMessage with _$AppMessage {
+  const factory AppMessage({
+    required AppMessageType type,
     dynamic data,
-  }) = _Message;
+  }) = _AppMessage;
 
-  factory Message.fromJson(Map<String, Object?> json) =>
-      _$MessageFromJson(json);
+  factory AppMessage.fromJson(Map<String, Object?> json) =>
+      _$AppMessageFromJson(json);
+}
+
+@freezed
+class ServiceMessage with _$ServiceMessage {
+  const factory ServiceMessage({
+    required ServiceMessageType type,
+    dynamic data,
+  }) = _ServiceMessage;
+
+  factory ServiceMessage.fromJson(Map<String, Object?> json) =>
+      _$ServiceMessageFromJson(json);
 }
 
 @freezed
@@ -76,6 +98,16 @@ class Process with _$Process {
 }
 
 @freezed
+class Fd with _$Fd {
+  const factory Fd({
+    required int id,
+    required int value,
+  }) = _Fd;
+
+  factory Fd.fromJson(Map<String, Object?> json) => _$FdFromJson(json);
+}
+
+@freezed
 class ProcessMapItem with _$ProcessMapItem {
   const factory ProcessMapItem({
     required int id,
@@ -91,10 +123,35 @@ class ExternalProvider with _$ExternalProvider {
   const factory ExternalProvider({
     required String name,
     required String type,
+    required String path,
+    required int count,
+    @Default(false) bool isUpdating,
     @JsonKey(name: "vehicle-type") required String vehicleType,
     @JsonKey(name: "update-at") required DateTime updateAt,
   }) = _ExternalProvider;
 
   factory ExternalProvider.fromJson(Map<String, Object?> json) =>
       _$ExternalProviderFromJson(json);
+}
+
+abstract mixin class AppMessageListener {
+  void onLog(Log log) {}
+
+  void onDelay(Delay delay) {}
+
+  void onRequest(Connection connection) {}
+
+  void onStarted(String runTime) {}
+
+  void onLoaded(String providerName) {}
+}
+
+abstract mixin class ServiceMessageListener {
+  onProtect(Fd fd) {}
+
+  onProcess(Process process) {}
+
+  onStarted(String runTime) {}
+
+  onLoaded(String providerName) {}
 }

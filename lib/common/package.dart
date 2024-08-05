@@ -1,22 +1,13 @@
-import 'dart:async';
+import 'dart:io';
 
 import 'package:package_info_plus/package_info_plus.dart';
 
-class AppPackage{
+import 'common.dart';
 
-  static AppPackage? _instance;
-  Completer<PackageInfo> packageInfoCompleter = Completer();
-
-  AppPackage._internal() {
-     PackageInfo.fromPlatform().then(
-          (value) => packageInfoCompleter.complete(value),
-    );
-  }
-
-  factory AppPackage() {
-    _instance ??= AppPackage._internal();
-    return _instance!;
-  }
+extension PackageInfoExtension on PackageInfo {
+  String get ua => [
+        "$appName/v$version",
+        "clash-verge",
+        "Platform/${Platform.operatingSystem}",
+      ].join(" ");
 }
-
-final appPackage = AppPackage();

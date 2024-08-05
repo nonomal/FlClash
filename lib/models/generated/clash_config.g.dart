@@ -45,13 +45,28 @@ ClashConfig _$ClashConfigFromJson(Map<String, dynamic> json) => ClashConfig()
   ..logLevel =
       $enumDecodeNullable(_$LogLevelEnumMap, json['log-level']) ?? LogLevel.info
   ..externalController = json['external-controller'] as String? ?? ''
+  ..keepAliveInterval = (json['keep-alive-interval'] as num?)?.toInt() ?? 30
   ..ipv6 = json['ipv6'] as bool? ?? false
   ..geodataLoader = json['geodata-loader'] as String? ?? 'memconservative'
   ..unifiedDelay = json['unified-delay'] as bool? ?? false
   ..tcpConcurrent = json['tcp-concurrent'] as bool? ?? false
   ..tun = Tun.fromJson(json['tun'] as Map<String, dynamic>)
   ..dns = Dns.fromJson(json['dns'] as Map<String, dynamic>)
-  ..rules = (json['rules'] as List<dynamic>).map((e) => e as String).toList();
+  ..rules = (json['rules'] as List<dynamic>).map((e) => e as String).toList()
+  ..globalRealUa = json['global-real-ua'] as String?
+  ..geoXUrl = (json['geox-url'] as Map<String, dynamic>?)?.map(
+        (k, e) => MapEntry(k, e as String),
+      ) ??
+      {
+        'mmdb':
+            'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb',
+        'asn':
+            'https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb',
+        'geoip':
+            'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoIP.dat',
+        'geosite':
+            'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat'
+      };
 
 Map<String, dynamic> _$ClashConfigToJson(ClashConfig instance) =>
     <String, dynamic>{
@@ -61,6 +76,7 @@ Map<String, dynamic> _$ClashConfigToJson(ClashConfig instance) =>
       'allow-lan': instance.allowLan,
       'log-level': _$LogLevelEnumMap[instance.logLevel]!,
       'external-controller': instance.externalController,
+      'keep-alive-interval': instance.keepAliveInterval,
       'ipv6': instance.ipv6,
       'geodata-loader': instance.geodataLoader,
       'unified-delay': instance.unifiedDelay,
@@ -68,6 +84,9 @@ Map<String, dynamic> _$ClashConfigToJson(ClashConfig instance) =>
       'tun': instance.tun,
       'dns': instance.dns,
       'rules': instance.rules,
+      'global-ua': instance.globalUa,
+      'global-real-ua': instance.globalRealUa,
+      'geox-url': instance.geoXUrl,
     };
 
 const _$ModeEnumMap = {

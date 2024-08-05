@@ -16,8 +16,7 @@ class StartButtonSelectorState with _$StartButtonSelectorState {
 @freezed
 class CheckIpSelectorState with _$CheckIpSelectorState {
   const factory CheckIpSelectorState({
-    required bool isInit,
-    required bool isStart,
+    required String? currentProfileId,
     required SelectedMap selectedMap,
   }) = _CheckIpSelectorState;
 }
@@ -42,9 +41,10 @@ class ProfilesSelectorState with _$ProfilesSelectorState {
 @freezed
 class ApplicationSelectorState with _$ApplicationSelectorState {
   const factory ApplicationSelectorState({
-    String? locale,
-    ThemeMode? themeMode,
-    int? primaryColor,
+    required String? locale,
+    required ThemeMode? themeMode,
+    required int? primaryColor,
+    required bool prueBlack,
   }) = _ApplicationSelectorState;
 }
 
@@ -99,11 +99,24 @@ class ProxiesSelectorState with _$ProxiesSelectorState {
 }
 
 @freezed
+class ProxiesListSelectorState with _$ProxiesListSelectorState {
+  const factory ProxiesListSelectorState({
+    required List<String> groupNames,
+    required Set<String> currentUnfoldSet,
+    required ProxiesSortType proxiesSortType,
+    required ProxyCardType proxyCardType,
+    required num sortNum,
+    required int columns,
+  }) = _ProxiesListSelectorState;
+}
+
+@freezed
 class ProxyGroupSelectorState with _$ProxyGroupSelectorState {
   const factory ProxyGroupSelectorState({
     required ProxiesSortType proxiesSortType,
     required ProxyCardType proxyCardType,
     required num sortNum,
+    required GroupType groupType,
     required List<Proxy> proxies,
     required int columns,
   }) = _ProxyGroupSelectorState;
@@ -122,4 +135,29 @@ class PackageListSelectorState with _$PackageListSelectorState {
     required AccessControl accessControl,
     required bool isAccessControl,
   }) = _PackageListSelectorState;
+}
+
+@freezed
+class ColumnsSelectorState with _$ColumnsSelectorState {
+  const factory ColumnsSelectorState({
+    required int columns,
+    required ViewMode viewMode,
+  }) = _ColumnsSelectorState;
+}
+
+@freezed
+class ProxiesListHeaderSelectorState with _$ProxiesListHeaderSelectorState {
+  const factory ProxiesListHeaderSelectorState({
+    required double offset,
+    required int currentIndex,
+  }) = _ProxiesListHeaderSelectorState;
+}
+
+
+@freezed
+class ProxiesActionsState with _$ProxiesActionsState {
+  const factory ProxiesActionsState({
+    required bool isCurrent,
+    required bool hasProvider,
+  }) = _ProxiesActionsState;
 }

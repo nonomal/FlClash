@@ -1,6 +1,5 @@
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/fragments/profiles/edit_profile.dart';
-import 'package:fl_clash/fragments/profiles/view_profile.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/state.dart';
@@ -16,7 +15,6 @@ enum ProfileActions {
   edit,
   update,
   delete,
-  view,
 }
 
 class ProfilesFragment extends StatefulWidget {
@@ -27,9 +25,7 @@ class ProfilesFragment extends StatefulWidget {
 }
 
 class _ProfilesFragmentState extends State<ProfilesFragment> {
-  final hasPadding = ValueNotifier<bool>(false);
-
-  List<GlobalObjectKey<_ProfileItemState>> profileItemKeys = [];
+  Function? applyConfigDebounce;
 
   _handleShowAddExtendPage() {
     showExtendPage(
@@ -53,8 +49,28 @@ class _ProfilesFragmentState extends State<ProfilesFragment> {
   }
 
   _updateProfiles() async {
-    final updateProfiles = profileItemKeys.map<Future>(
-        (key) async => await key.currentState?.updateProfile(false));
+    final appController = globalState.appController;
+    final config = appController.config;
+    final profiles = appController.config.profiles;
+    final updateProfiles = profiles.map<Future>(
+      (profile) async {
+        config.setProfile(
+          profile.copyWith(isUpdating: true),
+        );
+        try {
+          await appController.updateProfile(profile);
+          if (profile.id == appController.config.currentProfile?.id) {
+            appController.applyProfile(isPrue: true);
+          }
+        } catch (_) {
+          config.setProfile(
+            profile.copyWith(
+              isUpdating: false,
+            ),
+          );
+        }
+      },
+    );
     await Future.wait(updateProfiles);
   }
 
@@ -71,107 +87,80 @@ class _ProfilesFragmentState extends State<ProfilesFragment> {
             },
             icon: const Icon(Icons.sync),
           ),
-          const SizedBox(
-            width: 8,
-          )
         ];
-        commonScaffoldState?.floatingActionButton = FloatingActionButton(
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatLayout(
+      floatingWidget: FloatWrapper(
+        child: FloatingActionButton(
           heroTag: null,
           onPressed: _handleShowAddExtendPage,
           child: const Icon(
             Icons.add,
           ),
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-    hasPadding.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Selector<AppState, bool>(
-      selector: (_, appState) => appState.currentLabel == 'profiles',
-      builder: (_, isCurrent, child) {
-        if (isCurrent) {
-          _initScaffoldState();
-        }
-        return child!;
-      },
-      child: Selector2<AppState, Config, ProfilesSelectorState>(
-        selector: (_, appState, config) => ProfilesSelectorState(
-          profiles: config.profiles,
-          currentProfileId: config.currentProfileId,
-          viewMode: appState.viewMode,
         ),
-        builder: (context, state, child) {
-          if (state.profiles.isEmpty) {
-            return NullStatus(
-              label: appLocalizations.nullProfileDesc,
-            );
+      ),
+      child: Selector<AppState, bool>(
+        selector: (_, appState) => appState.currentLabel == 'profiles',
+        builder: (_, isCurrent, child) {
+          if (isCurrent) {
+            _initScaffoldState();
           }
-          profileItemKeys = state.profiles
-              .map((profile) => GlobalObjectKey<_ProfileItemState>(profile.id))
-              .toList();
-          final columns = _getColumns(state.viewMode);
-          final isMobile = state.viewMode == ViewMode.mobile;
-          return Align(
-            alignment: Alignment.topCenter,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: (scrollNotification) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  hasPadding.value =
-                      scrollNotification.metrics.maxScrollExtent > 0;
-                });
-                return true;
-              },
-              child: ValueListenableBuilder(
-                valueListenable: hasPadding,
-                builder: (_, hasPadding, __) {
-                  return SingleChildScrollView(
-                    padding: !isMobile
-                        ? EdgeInsets.only(
-                            left: 16,
-                            right: 16,
-                            top: 16,
-                            bottom: 16 + (hasPadding ? 56 : 0),
-                          )
-                        : EdgeInsets.only(
-                            bottom: 0 + (hasPadding ? 56 : 0),
-                          ),
-                    child: Grid(
-                      mainAxisSpacing: isMobile ? 8 : 16,
-                      crossAxisSpacing: 16,
-                      crossAxisCount: columns,
-                      children: [
-                        for (int i = 0; i < state.profiles.length; i++)
-                          GridItem(
-                            child: ProfileItem(
-                              key: profileItemKeys[i],
-                              profile: state.profiles[i],
-                              groupValue: state.currentProfileId,
-                              onChanged:
-                                  globalState.appController.changeProfile,
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
+          return child!;
         },
+        child: Selector2<AppState, Config, ProfilesSelectorState>(
+          selector: (_, appState, config) => ProfilesSelectorState(
+            profiles: config.profiles,
+            currentProfileId: config.currentProfileId,
+            viewMode: appState.viewMode,
+          ),
+          builder: (context, state, child) {
+            if (state.profiles.isEmpty) {
+              return NullStatus(
+                label: appLocalizations.nullProfileDesc,
+              );
+            }
+            final columns = _getColumns(state.viewMode);
+            return Align(
+              alignment: Alignment.topCenter,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 88,
+                ),
+                child: Grid(
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  crossAxisCount: columns,
+                  children: [
+                    for (int i = 0; i < state.profiles.length; i++)
+                      GridItem(
+                        child: ProfileItem(
+                          key: Key(state.profiles[i].id),
+                          profile: state.profiles[i],
+                          groupValue: state.currentProfileId,
+                          onChanged:
+                          globalState.appController.changeProfile,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-class ProfileItem extends StatefulWidget {
+class ProfileItem extends StatelessWidget {
   final Profile profile;
   final String? groupValue;
   final void Function(String? value) onChanged;
@@ -183,294 +172,201 @@ class ProfileItem extends StatefulWidget {
     required this.onChanged,
   });
 
-  @override
-  State<ProfileItem> createState() => _ProfileItemState();
-}
-
-class _ProfileItemState extends State<ProfileItem> {
-  final isUpdating = ValueNotifier<bool>(false);
-
-  _handleDeleteProfile() async {
-    globalState.appController.deleteProfile(widget.profile.id);
+  _handleDeleteProfile(BuildContext context) async {
+    globalState.showMessage(
+      title: appLocalizations.tip,
+      message: TextSpan(
+        text: appLocalizations.deleteProfileTip,
+      ),
+      onTab: () async {
+        await globalState.appController.deleteProfile(profile.id);
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+    );
   }
 
   _handleUpdateProfile() async {
     await globalState.safeRun<void>(updateProfile);
   }
 
-  Future updateProfile([isSingle = true]) async {
-    isUpdating.value = true;
-    try {
-      await globalState.appController.updateProfile(widget.profile);
-    } catch (e) {
-      isUpdating.value = false;
-      if (!isSingle) {
-        return e.toString();
+  Future updateProfile() async {
+    final appController = globalState.appController;
+    final config = appController.config;
+    if (profile.type == ProfileType.file) return;
+    await globalState.safeRun(() async {
+      try {
+        config.setProfile(
+          profile.copyWith(
+            isUpdating: true,
+          ),
+        );
+        await appController.updateProfile(profile);
+        if (profile.id == appController.config.currentProfile?.id) {
+          appController.applyProfile(isPrue: true);
+        }
+      } catch (e) {
+        config.setProfile(
+          profile.copyWith(
+            isUpdating: false,
+          ),
+        );
+        rethrow;
       }
-    }
-    isUpdating.value = false;
-    return null;
+    });
   }
 
-  _handleShowEditExtendPage() {
+  _handleShowEditExtendPage(BuildContext context) {
     showExtendPage(
       context,
       body: EditProfile(
-        profile: widget.profile,
+        profile: profile,
         context: context,
       ),
       title: "${appLocalizations.edit}${appLocalizations.profile}",
     );
   }
 
-  _handleViewProfile() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ViewProfile(
-          profile: widget.profile,
-        ),
+  List<Widget> _buildUserInfo(BuildContext context, UserInfo userInfo) {
+    final use = userInfo.upload + userInfo.download;
+    final total = userInfo.total;
+    if (total == 0) {
+      return [];
+    }
+    final useShow = TrafficValue(value: use).show;
+    final totalShow = TrafficValue(value: total).show;
+    final progress = total == 0 ? 0.0 : use / total;
+    final expireShow = userInfo.expire == 0
+        ? appLocalizations.infiniteTime
+        : DateTime.fromMillisecondsSinceEpoch(userInfo.expire * 1000).show;
+    return [
+      LinearProgressIndicator(
+        minHeight: 6,
+        value: progress,
       ),
-    );
+      const SizedBox(
+        height: 8,
+      ),
+      Text(
+        "$useShow / $totalShow · $expireShow",
+        style: context.textTheme.labelMedium?.toLight,
+      ),
+      const SizedBox(
+        height: 4,
+      ),
+    ];
   }
 
-  _buildTitle(Profile profile) {
-    final textTheme = context.textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                profile.label ?? profile.id,
-                style: textTheme.titleMedium,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                profile.lastUpdateDate?.lastUpdateTimeDesc ?? '',
-                style: textTheme.labelMedium?.toLight,
-              ),
-            ],
-          ),
-          Builder(builder: (context) {
-            final userInfo = profile.userInfo ?? const UserInfo();
-            final use = userInfo.upload + userInfo.download;
-            final total = userInfo.total;
-            final useShow = TrafficValue(value: use).show;
-            final totalShow = TrafficValue(value: total).show;
-            final progress = total == 0 ? 0.0 : use / total;
-            final expireShow = userInfo.expire == 0
-                ? appLocalizations.infiniteTime
-                : DateTime.fromMillisecondsSinceEpoch(userInfo.expire * 1000)
-                    .show;
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  margin: const EdgeInsets.symmetric(
-                    vertical: 8,
-                  ),
-                  child: LinearProgressIndicator(
-                    minHeight: 6,
-                    value: progress,
-                  ),
-                ),
-                Text(
-                  "$useShow / $totalShow",
-                  style: textTheme.labelMedium?.toLight,
-                ),
-                const SizedBox(
-                  height: 2,
-                ),
-                Row(
-                  children: [
-                    Text(
-                      appLocalizations.expirationTime,
-                      style: textTheme.labelMedium?.toLighter,
-                    ),
-                    const SizedBox(
-                      width: 4,
-                    ),
-                    Text(
-                      expireShow,
-                      style: textTheme.labelMedium?.toLighter,
-                    ),
-                  ],
-                )
-              ],
-            );
-            // final child = switch (userInfo != null) {
-            //   true => () {
-            //       final use = userInfo!.upload + userInfo.download;
-            //       final total = userInfo.total;
-            //       final useShow = TrafficValue(value: use).show;
-            //       final totalShow = TrafficValue(value: total).show;
-            //       final progress = total == 0 ? 0.0 : use / total;
-            //       final expireShow = userInfo.expire == 0
-            //           ? appLocalizations.infiniteTime
-            //           : DateTime.fromMillisecondsSinceEpoch(
-            //                   userInfo.expire * 1000)
-            //               .show;
-            //       return Column(
-            //         mainAxisSize: MainAxisSize.min,
-            //         crossAxisAlignment: CrossAxisAlignment.start,
-            //         mainAxisAlignment: MainAxisAlignment.center,
-            //         children: [
-            //           Container(
-            //             margin: const EdgeInsets.symmetric(
-            //               vertical: 8,
-            //             ),
-            //             child: LinearProgressIndicator(
-            //               minHeight: 6,
-            //               value: progress,
-            //             ),
-            //           ),
-            //           Text(
-            //             "$useShow / $totalShow",
-            //             style: textTheme.labelMedium?.toLight(),
-            //           ),
-            //           const SizedBox(
-            //             height: 2,
-            //           ),
-            //           Row(
-            //             children: [
-            //               Text(
-            //                 appLocalizations.expirationTime,
-            //                 style: textTheme.labelMedium?.toLighter(),
-            //               ),
-            //               const SizedBox(
-            //                 width: 4,
-            //               ),
-            //               Text(
-            //                 expireShow,
-            //                 style: textTheme.labelMedium?.toLighter(),
-            //               ),
-            //             ],
-            //           )
-            //         ],
-            //       );
-            //     }(),
-            //   false => Column(
-            //       children: [
-            //         Padding(
-            //           padding: const EdgeInsets.only(top: 8),
-            //           child: CommonChip(
-            //             onPressed: _handleViewProfile,
-            //             avatar: const Icon(Icons.remove_red_eye),
-            //             label: appLocalizations.view,
-            //           ),
-            //         ),
-            //       ],
-            //     ),
-            // };
-            // final measure = globalState.appController.measure;
-            // final height = 6 + 8 * 2 + 2 + measure.labelMediumHeight * 2;
-            // return SizedBox(
-            //   height: height,
-            //   child: child,
-            // );
-          }),
-        ],
+  List<Widget> _buildUrlProfileInfo(BuildContext context) {
+    final userInfo = profile.userInfo;
+    return [
+      const SizedBox(
+        height: 8,
       ),
-    );
+      if (userInfo != null) ..._buildUserInfo(context, userInfo),
+      Text(
+        profile.lastUpdateDate?.lastUpdateTimeDesc ?? "",
+        style: context.textTheme.labelMedium?.toLight,
+      ),
+    ];
   }
 
-  @override
-  void dispose() {
-    isUpdating.dispose();
-    super.dispose();
+  List<Widget> _buildFileProfileInfo(BuildContext context) {
+    return [
+      const SizedBox(
+        height: 8,
+      ),
+      Text(
+        profile.lastUpdateDate?.lastUpdateTimeDesc ?? "",
+        style: context.textTheme.labelMedium?.toLight,
+      ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
-    final groupValue = widget.groupValue;
-    final onChanged = widget.onChanged;
-    return Selector<AppState, ViewMode>(
-      selector: (_, appState) => appState.viewMode,
-      builder: (_, viewMode, child) {
-        if (viewMode == ViewMode.mobile) {
-          return child!;
-        }
-        return CommonCard(
-          child: child!,
-        );
+    return CommonCard(
+      isSelected: profile.id == groupValue,
+      onPressed: () {
+        onChanged(profile.id);
       },
-      child: ListItem.radio(
+      child: ListItem(
         key: Key(profile.id),
         horizontalTitleGap: 16,
-        delegate: RadioDelegate<String?>(
-          value: profile.id,
-          groupValue: groupValue,
-          onChanged: onChanged,
-        ),
         padding: const EdgeInsets.symmetric(horizontal: 16),
         trailing: SizedBox(
-          height: 48,
-          width: 48,
-          child: ValueListenableBuilder(
-            valueListenable: isUpdating,
-            builder: (_, isUpdating, ___) {
-              return FadeBox(
-                  child: isUpdating
-                      ? const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: CircularProgressIndicator(),
-                        )
-                      : CommonPopupMenu<ProfileActions>(
-                          items: [
-                            CommonPopupMenuItem(
-                              action: ProfileActions.edit,
-                              label: appLocalizations.edit,
-                              iconData: Icons.edit,
-                            ),
-                            if (profile.type == ProfileType.url)
-                              CommonPopupMenuItem(
-                                action: ProfileActions.update,
-                                label: appLocalizations.update,
-                                iconData: Icons.sync,
-                              ),
-                            CommonPopupMenuItem(
-                              action: ProfileActions.view,
-                              label: appLocalizations.view,
-                              iconData: Icons.visibility,
-                            ),
-                            CommonPopupMenuItem(
-                              action: ProfileActions.delete,
-                              label: appLocalizations.delete,
-                              iconData: Icons.delete,
-                            ),
-                          ],
-                          onSelected: (ProfileActions? action) async {
-                            switch (action) {
-                              case ProfileActions.edit:
-                                _handleShowEditExtendPage();
-                                break;
-                              case ProfileActions.delete:
-                                _handleDeleteProfile();
-                                break;
-                              case ProfileActions.update:
-                                _handleUpdateProfile();
-                                break;
-                              case ProfileActions.view:
-                                _handleViewProfile();
-                                break;
-                              case null:
-                                break;
-                            }
-                          },
-                        ));
-            },
+          height: 40,
+          width: 40,
+          child: FadeBox(
+            child: profile.isUpdating
+                ? const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(),
+                  )
+                : CommonPopupMenu<ProfileActions>(
+                    items: [
+                      CommonPopupMenuItem(
+                        action: ProfileActions.edit,
+                        label: appLocalizations.edit,
+                        iconData: Icons.edit,
+                      ),
+                      if (profile.type == ProfileType.url)
+                        CommonPopupMenuItem(
+                          action: ProfileActions.update,
+                          label: appLocalizations.update,
+                          iconData: Icons.sync,
+                        ),
+                      CommonPopupMenuItem(
+                        action: ProfileActions.delete,
+                        label: appLocalizations.delete,
+                        iconData: Icons.delete,
+                      ),
+                    ],
+                    onSelected: (ProfileActions? action) async {
+                      switch (action) {
+                        case ProfileActions.edit:
+                          _handleShowEditExtendPage(context);
+                          break;
+                        case ProfileActions.delete:
+                          _handleDeleteProfile(context);
+                          break;
+                        case ProfileActions.update:
+                          _handleUpdateProfile();
+                          break;
+                        case null:
+                          break;
+                      }
+                    },
+                  ),
           ),
         ),
-        title: _buildTitle(profile),
+        title: Container(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                profile.label ?? profile.id,
+                style: context.textTheme.titleMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ...switch (profile.type) {
+                    ProfileType.file => _buildFileProfileInfo(context),
+                    ProfileType.url => _buildUrlProfileInfo(context),
+                  },
+                ],
+              ),
+            ],
+          ),
+        ),
         tileTitleAlignment: ListTileTitleAlignment.titleHeight,
       ),
     );

@@ -1,9 +1,11 @@
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/open_container.dart';
 import 'package:flutter/material.dart';
 
-import 'extend_page.dart';
+import 'card.dart';
+import 'sheet.dart';
 import 'scaffold.dart';
 
 class Delegate {
@@ -76,7 +78,7 @@ class ListItem<T> extends StatelessWidget {
   final Widget? trailing;
   final Delegate delegate;
   final double? horizontalTitleGap;
-  final void Function()? onTab;
+  final void Function()? onTap;
 
   const ListItem({
     super.key,
@@ -87,7 +89,7 @@ class ListItem<T> extends StatelessWidget {
     this.trailing,
     this.horizontalTitleGap,
     this.prue,
-    this.onTab,
+    this.onTap,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
   }) : delegate = const Delegate();
 
@@ -102,7 +104,7 @@ class ListItem<T> extends StatelessWidget {
     this.horizontalTitleGap,
     this.prue,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  }) : onTab = null;
+  }) : onTap = null;
 
   const ListItem.next({
     super.key,
@@ -115,7 +117,7 @@ class ListItem<T> extends StatelessWidget {
     this.horizontalTitleGap,
     this.prue,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  }) : onTab = null;
+  }) : onTap = null;
 
   const ListItem.checkbox({
     super.key,
@@ -128,7 +130,7 @@ class ListItem<T> extends StatelessWidget {
     this.prue,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
   })  : trailing = null,
-        onTab = null;
+        onTap = null;
 
   const ListItem.switchItem({
     super.key,
@@ -141,7 +143,7 @@ class ListItem<T> extends StatelessWidget {
     this.prue,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
   })  : trailing = null,
-        onTab = null;
+        onTap = null;
 
   const ListItem.radio({
     super.key,
@@ -154,10 +156,10 @@ class ListItem<T> extends StatelessWidget {
     this.prue,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
   })  : leading = null,
-        onTab = null;
+        onTap = null;
 
   _buildListTile({
-    void Function()? onTab,
+    void Function()? onTap,
     Widget? trailing,
     Widget? leading,
   }) {
@@ -186,7 +188,7 @@ class ListItem<T> extends StatelessWidget {
       }
       return InkWell(
         splashFactory: NoSplash.splashFactory,
-        onTap: onTab,
+        onTap: onTap,
         child: Container(
           padding: padding,
           child: Row(
@@ -201,7 +203,7 @@ class ListItem<T> extends StatelessWidget {
       title: title,
       subtitle: subtitle,
       titleAlignment: tileTitleAlignment,
-      onTap: onTab,
+      onTap: onTap,
       trailing: trailing ?? this.trailing,
       contentPadding: padding,
     );
@@ -211,14 +213,18 @@ class ListItem<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     if (delegate is OpenDelegate) {
       final openDelegate = delegate as OpenDelegate;
+      final child = SafeArea(
+        child: openDelegate.widget,
+      );
       return OpenContainer(
         closedBuilder: (_, action) {
           openAction() {
-            final isMobile = globalState.appController.appState.viewMode == ViewMode.mobile;
+            final isMobile =
+                globalState.appController.appState.viewMode == ViewMode.mobile;
             if (!isMobile) {
               showExtendPage(
                 context,
-                body: openDelegate.widget,
+                body: child,
                 title: openDelegate.title,
                 extendPageWidth: openDelegate.extendPageWidth,
               );
@@ -227,14 +233,16 @@ class ListItem<T> extends StatelessWidget {
             action();
           }
 
-          return _buildListTile(onTab: openAction);
+          return _buildListTile(
+            onTap: openAction,
+          );
         },
         openBuilder: (_, action) {
           return CommonScaffold.open(
             key: Key(openDelegate.title),
             onBack: action,
             title: openDelegate.title,
-            body: openDelegate.widget,
+            body: child,
           );
         },
       );
@@ -242,8 +250,9 @@ class ListItem<T> extends StatelessWidget {
     if (delegate is NextDelegate) {
       final nextDelegate = delegate as NextDelegate;
       return _buildListTile(
-        onTab: () {
-          final isMobile = globalState.appController.appState.viewMode == ViewMode.mobile;
+        onTap: () {
+          final isMobile =
+              globalState.appController.appState.viewMode == ViewMode.mobile;
           if (!isMobile) {
             showExtendPage(
               context,
@@ -268,7 +277,7 @@ class ListItem<T> extends StatelessWidget {
     if (delegate is CheckboxDelegate) {
       final checkboxDelegate = delegate as CheckboxDelegate;
       return _buildListTile(
-        onTab: () {
+        onTap: () {
           if (checkboxDelegate.onChanged != null) {
             checkboxDelegate.onChanged!(!checkboxDelegate.value);
           }
@@ -282,7 +291,7 @@ class ListItem<T> extends StatelessWidget {
     if (delegate is SwitchDelegate) {
       final switchDelegate = delegate as SwitchDelegate;
       return _buildListTile(
-        onTab: () {
+        onTap: () {
           if (switchDelegate.onChanged != null) {
             switchDelegate.onChanged!(!switchDelegate.value);
           }
@@ -296,7 +305,7 @@ class ListItem<T> extends StatelessWidget {
     if (delegate is RadioDelegate) {
       final radioDelegate = delegate as RadioDelegate<T>;
       return _buildListTile(
-        onTab: () {
+        onTap: () {
           if (radioDelegate.onChanged != null) {
             radioDelegate.onChanged!(radioDelegate.value);
           }
@@ -315,7 +324,104 @@ class ListItem<T> extends StatelessWidget {
     }
 
     return _buildListTile(
-      onTab: onTab,
+      onTap: onTap,
     );
   }
+}
+
+class ListHeader extends StatelessWidget {
+  final String title;
+  final List<Widget> actions;
+
+  const ListHeader({
+    super.key,
+    required this.title,
+    List<Widget>? actions,
+  }) : actions = actions ?? const [];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 12,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+          ),
+          Expanded(
+            flex: 1,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                ...actions,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<Widget> generateSection({
+  required String title,
+  required Iterable<Widget> items,
+  List<Widget>? actions,
+  bool separated = true,
+}) {
+  final genItems = separated
+      ? items.separated(
+          const Divider(
+            height: 0,
+          ),
+        )
+      : items;
+  return [
+    if (items.isNotEmpty)
+      ListHeader(
+        title: title,
+        actions: actions,
+      ),
+    ...genItems,
+  ];
+}
+
+List<Widget> generateInfoSection({
+  required Info info,
+  required Iterable<Widget> items,
+  List<Widget>? actions,
+  bool separated = true,
+}) {
+  final genItems = separated
+      ? items.separated(
+          const Divider(
+            height: 0,
+          ),
+        )
+      : items;
+  return [
+    if (items.isNotEmpty)
+      InfoHeader(
+        info: info,
+        actions: actions,
+      ),
+    ...genItems,
+  ];
+}
+
+Widget generateListView(List<Widget> items) {
+  return ListView.builder(
+    itemCount: items.length,
+    itemBuilder: (_, index) => items[index],
+  );
 }

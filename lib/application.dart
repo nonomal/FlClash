@@ -115,7 +115,6 @@ class ApplicationState extends State<Application> {
       lightColorScheme: lightDynamic,
       darkColorScheme: darkDynamic,
     );
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       globalState.appController.updateSystemColorSchemes(systemColorSchemes);
     });
@@ -129,7 +128,7 @@ class ApplicationState extends State<Application> {
     globalState.groupsUpdateTimer ??= Timer.periodic(
       httpTimeoutDuration,
       (timer) async {
-        await globalState.appController.updateGroups();
+        await globalState.appController.updateGroupDebounce();
       },
     );
   }
@@ -137,56 +136,59 @@ class ApplicationState extends State<Application> {
   @override
   Widget build(context) {
     return AppStateContainer(
-      child: ClashMessageContainer(
-        child: _buildApp(
-          Selector2<AppState, Config, ApplicationSelectorState>(
-            selector: (_, appState, config) => ApplicationSelectorState(
-              locale: config.locale,
-              themeMode: config.themeMode,
-              primaryColor: config.primaryColor,
-            ),
-            builder: (_, state, child) {
-              return DynamicColorBuilder(
-                builder: (lightDynamic, darkDynamic) {
-                  _updateSystemColorSchemes(lightDynamic, darkDynamic);
-                  return MaterialApp(
-                    navigatorKey: globalState.navigatorKey,
-                    localizationsDelegates: const [
-                      AppLocalizations.delegate,
-                      GlobalMaterialLocalizations.delegate,
-                      GlobalCupertinoLocalizations.delegate,
-                      GlobalWidgetsLocalizations.delegate
-                    ],
-                    title: appName,
-                    locale: other.getLocaleForString(state.locale),
-                    supportedLocales:
-                        AppLocalizations.delegate.supportedLocales,
-                    themeMode: state.themeMode,
-                    theme: ThemeData(
-                      useMaterial3: true,
-                      pageTransitionsTheme: _pageTransitionsTheme,
-                      colorScheme: _getAppColorScheme(
-                        brightness: Brightness.light,
-                        systemColorSchemes: systemColorSchemes,
-                        primaryColor: state.primaryColor,
-                      ),
-                    ),
-                    darkTheme: ThemeData(
-                      useMaterial3: true,
-                      pageTransitionsTheme: _pageTransitionsTheme,
-                      colorScheme: _getAppColorScheme(
-                        brightness: Brightness.dark,
-                        systemColorSchemes: systemColorSchemes,
-                        primaryColor: state.primaryColor,
-                      ),
-                    ),
-                    home: child,
-                  );
-                },
-              );
-            },
-            child: const HomePage(),
+      child: ClashContainer(
+        child: Selector2<AppState, Config, ApplicationSelectorState>(
+          selector: (_, appState, config) => ApplicationSelectorState(
+            locale: config.locale,
+            themeMode: config.themeMode,
+            primaryColor: config.primaryColor,
+            prueBlack: config.prueBlack,
           ),
+          builder: (_, state, child) {
+            return DynamicColorBuilder(
+              builder: (lightDynamic, darkDynamic) {
+                _updateSystemColorSchemes(lightDynamic, darkDynamic);
+                return MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  navigatorKey: globalState.navigatorKey,
+                  localizationsDelegates: const [
+                    AppLocalizations.delegate,
+                    GlobalMaterialLocalizations.delegate,
+                    GlobalCupertinoLocalizations.delegate,
+                    GlobalWidgetsLocalizations.delegate
+                  ],
+                  builder: (_, child) {
+                    return _buildApp(child!);
+                  },
+                  scrollBehavior: BaseScrollBehavior(),
+                  title: appName,
+                  locale: other.getLocaleForString(state.locale),
+                  supportedLocales: AppLocalizations.delegate.supportedLocales,
+                  themeMode: state.themeMode,
+                  theme: ThemeData(
+                    useMaterial3: true,
+                    pageTransitionsTheme: _pageTransitionsTheme,
+                    colorScheme: _getAppColorScheme(
+                      brightness: Brightness.light,
+                      systemColorSchemes: systemColorSchemes,
+                      primaryColor: state.primaryColor,
+                    ),
+                  ),
+                  darkTheme: ThemeData(
+                    useMaterial3: true,
+                    pageTransitionsTheme: _pageTransitionsTheme,
+                    colorScheme: _getAppColorScheme(
+                      brightness: Brightness.dark,
+                      systemColorSchemes: systemColorSchemes,
+                      primaryColor: state.primaryColor,
+                    ).toPrueBlack(state.prueBlack),
+                  ),
+                  home: child,
+                );
+              },
+            );
+          },
+          child: const HomePage(),
         ),
       ),
     );

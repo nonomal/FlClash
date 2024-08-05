@@ -1,13 +1,11 @@
-import 'package:fl_clash/common/app_localizations.dart';
-import 'package:fl_clash/common/system.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 class CommonScaffold extends StatefulWidget {
   final Widget body;
   final Widget? bottomNavigationBar;
-  final Widget? floatingActionButton;
+  final Widget? sideNavigationBar;
   final String title;
   final Widget? leading;
   final List<Widget>? actions;
@@ -16,11 +14,11 @@ class CommonScaffold extends StatefulWidget {
   const CommonScaffold({
     super.key,
     required this.body,
+    this.sideNavigationBar,
     this.bottomNavigationBar,
     this.leading,
     required this.title,
     this.actions,
-    this.floatingActionButton,
     this.automaticallyImplyLeading = true,
   });
 
@@ -51,19 +49,11 @@ class CommonScaffold extends StatefulWidget {
 
 class CommonScaffoldState extends State<CommonScaffold> {
   final ValueNotifier<List<Widget>> _actions = ValueNotifier([]);
-  final ValueNotifier<Widget?> _floatingActionButton = ValueNotifier(null);
-
   final ValueNotifier<bool> _loading = ValueNotifier(false);
 
   set actions(List<Widget> actions) {
     if (_actions.value != actions) {
       _actions.value = actions;
-    }
-  }
-
-  set floatingActionButton(Widget? actions) {
-    if (_floatingActionButton.value != actions) {
-      _floatingActionButton.value = actions;
     }
   }
 
@@ -91,98 +81,79 @@ class CommonScaffoldState extends State<CommonScaffold> {
   @override
   void dispose() {
     _actions.dispose();
-    _floatingActionButton.dispose();
     super.dispose();
   }
 
   @override
-  void didUpdateWidget(covariant CommonScaffold oldWidget) {
+  void didUpdateWidget(CommonScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.title != widget.title) {
       _actions.value = [];
-      _floatingActionButton.value = null;
     }
   }
 
-  _platformContainer({required Widget child}) {
-    if (system.isDesktop) {
-      return child;
-    }
-    return AnnotatedRegion(
-      value: SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Theme.of(context).brightness == Brightness.dark
-            ? Brightness.light
-            : Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarDividerColor: Colors.transparent,
-      ),
-      child: child,
-    );
-  }
+  Widget? get _sideNavigationBar => widget.sideNavigationBar;
+
+  Widget get body => SafeArea(child: widget.body);
 
   @override
   Widget build(BuildContext context) {
-    return _platformContainer(
-      child: Scaffold(
-        floatingActionButton: widget.floatingActionButton ??
-            ValueListenableBuilder(
-              valueListenable: _floatingActionButton,
-              builder: (_, floatingActionButton, __) {
-                return floatingActionButton ?? Container();
+    final scaffold = Scaffold(
+      resizeToAvoidBottomInset: true,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            ValueListenableBuilder<List<Widget>>(
+              valueListenable: _actions,
+              builder: (_, actions, __) {
+                final realActions =
+                actions.isNotEmpty ? actions : widget.actions;
+                return AppBar(
+                  centerTitle: false,
+                  automaticallyImplyLeading: widget.automaticallyImplyLeading,
+                  leading: widget.leading,
+                  title: Text(widget.title),
+                  actions: [
+                    ...?realActions,
+                    const SizedBox(
+                      width: 8,
+                    )
+                  ],
+                );
               },
             ),
-        resizeToAvoidBottomInset: true,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
-          child: Stack(
-            alignment: Alignment.bottomCenter,
+            ValueListenableBuilder(
+              valueListenable: _loading,
+              builder: (_, value, __) {
+                return value == true
+                    ? const LinearProgressIndicator()
+                    : Container();
+              },
+            ),
+          ],
+        ),
+      ),
+      body: body,
+      bottomNavigationBar: widget.bottomNavigationBar,
+    );
+    return _sideNavigationBar != null
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              ValueListenableBuilder(
-                valueListenable: _actions,
-                builder: (_, actions, __) {
-                  return AppBar(
-                    automaticallyImplyLeading: widget.automaticallyImplyLeading,
-                    leading: widget.leading,
-                    title: Text(widget.title),
-                    actions: actions.isNotEmpty ? actions : widget.actions,
-                  );
-                },
-              ),
-              ValueListenableBuilder(
-                valueListenable: _loading,
-                builder: (_, value, __) {
-                  return value == true
-                      ? const LinearProgressIndicator()
-                      : Container();
-                },
+              _sideNavigationBar!,
+              Expanded(
+                flex: 1,
+                child: Material(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: scaffold,
+                  ),
+                ),
               ),
             ],
-          ),
-        ),
-        body: widget.body,
-        bottomNavigationBar: widget.bottomNavigationBar,
-      ),
-    );
-  }
-}
-
-class AppIcon extends StatelessWidget {
-  const AppIcon({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 16,
-      ),
-      width: 30,
-      height: 30,
-      child: const CircleAvatar(
-        foregroundImage: AssetImage("assets/images/launch_icon.png"),
-        backgroundColor: Colors.transparent,
-      ),
-    );
+          )
+        : scaffold;
   }
 }

@@ -1,7 +1,10 @@
 // ignore_for_file: invalid_annotation_target
 
+import 'dart:io';
+
+import 'package:collection/collection.dart';
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/constant.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter/material.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
@@ -104,6 +107,8 @@ class Dns {
   }
 }
 
+typedef GeoXMap = Map<String, String>;
+
 @JsonSerializable()
 class ClashConfig extends ChangeNotifier {
   int _mixedPort;
@@ -114,11 +119,14 @@ class ClashConfig extends ChangeNotifier {
   String _externalController;
   Mode _mode;
   FindProcessMode _findProcessMode;
+  int _keepAliveInterval;
   bool _unifiedDelay;
   bool _tcpConcurrent;
   Tun _tun;
   Dns _dns;
+  GeoXMap _geoXUrl;
   List<String> _rules;
+  String? _globalRealUa;
 
   ClashConfig()
       : _mixedPort = 7890,
@@ -132,7 +140,9 @@ class ClashConfig extends ChangeNotifier {
         _unifiedDelay = false,
         _geodataLoader = geodataLoaderMemconservative,
         _externalController = '',
+        _keepAliveInterval = 30,
         _dns = Dns(),
+        _geoXUrl = defaultGeoXMap,
         _rules = [];
 
   @JsonKey(name: "mixed-port", defaultValue: 7890)
@@ -195,6 +205,16 @@ class ClashConfig extends ChangeNotifier {
     }
   }
 
+  @JsonKey(name: "keep-alive-interval", defaultValue: 30)
+  int get keepAliveInterval => _keepAliveInterval;
+
+  set keepAliveInterval(int value) {
+    if (_keepAliveInterval != value) {
+      _keepAliveInterval = value;
+      notifyListeners();
+    }
+  }
+
   @JsonKey(defaultValue: false)
   bool get ipv6 => _ipv6;
 
@@ -235,7 +255,12 @@ class ClashConfig extends ChangeNotifier {
     }
   }
 
-  Tun get tun => _tun;
+  Tun get tun {
+    if (Platform.isAndroid) {
+      return _tun.copyWith(enable: false);
+    }
+    return _tun;
+  }
 
   set tun(Tun value) {
     if (_tun != value) {
@@ -262,6 +287,35 @@ class ClashConfig extends ChangeNotifier {
     }
   }
 
+  @JsonKey(name: "global-ua", includeFromJson: false, includeToJson: true)
+  String get globalUa {
+    if (_globalRealUa == null) {
+      return globalState.packageInfo.ua;
+    } else {
+      return _globalRealUa!;
+    }
+  }
+
+  @JsonKey(name: "global-real-ua", defaultValue: null)
+  String? get globalRealUa => _globalRealUa;
+
+  set globalRealUa(String? value) {
+    if (_globalRealUa != value) {
+      _globalRealUa = value;
+      notifyListeners();
+    }
+  }
+
+  @JsonKey(name: "geox-url", defaultValue: defaultGeoXMap)
+  GeoXMap get geoXUrl => _geoXUrl;
+
+  set geoXUrl(GeoXMap value) {
+    if (!const MapEquality<String, String>().equals(value, _geoXUrl)) {
+      _geoXUrl = value;
+      notifyListeners();
+    }
+  }
+
   update([ClashConfig? clashConfig]) {
     if (clashConfig != null) {
       _mixedPort = clashConfig._mixedPort;
@@ -269,6 +323,13 @@ class ClashConfig extends ChangeNotifier {
       _mode = clashConfig._mode;
       _logLevel = clashConfig._logLevel;
       _tun = clashConfig._tun;
+      _findProcessMode = clashConfig._findProcessMode;
+      _geoXUrl = clashConfig._geoXUrl;
+      _unifiedDelay = clashConfig._unifiedDelay;
+      _globalRealUa = clashConfig._globalRealUa;
+      _tcpConcurrent = clashConfig._tcpConcurrent;
+      _externalController = clashConfig._externalController;
+      _geodataLoader = clashConfig._geodataLoader;
       _dns = clashConfig._dns;
       _rules = clashConfig._rules;
     }
@@ -281,10 +342,5 @@ class ClashConfig extends ChangeNotifier {
 
   factory ClashConfig.fromJson(Map<String, dynamic> json) {
     return _$ClashConfigFromJson(json);
-  }
-
-  @override
-  String toString() {
-    return 'ClashConfig{_mixedPort: $_mixedPort, _allowLan: $_allowLan, _mode: $_mode, _logLevel: $_logLevel, _tun: $_tun, _dns: $_dns, _rules: $_rules}';
   }
 }

@@ -1,24 +1,30 @@
 import 'package:fl_clash/common/constant.dart';
 import 'package:flutter/material.dart';
 
+@immutable
 class SystemColorSchemes {
-  SystemColorSchemes({
-    ColorScheme? lightColorScheme,
-    ColorScheme? darkColorScheme,
-  })  : lightColorScheme = lightColorScheme ??
-            ColorScheme.fromSeed(seedColor: defaultPrimaryColor),
-        darkColorScheme = darkColorScheme ??
-            ColorScheme.fromSeed(
+  final ColorScheme? lightColorScheme;
+  final ColorScheme? darkColorScheme;
+
+  const SystemColorSchemes({
+    this.lightColorScheme,
+    this.darkColorScheme,
+  });
+
+  getSystemColorSchemeForBrightness(Brightness? brightness) {
+    if (brightness == Brightness.dark) {
+      return darkColorScheme != null
+          ? ColorScheme.fromSeed(
+              seedColor: darkColorScheme!.primary,
+              brightness: Brightness.dark,
+            )
+          : ColorScheme.fromSeed(
               seedColor: defaultPrimaryColor,
               brightness: Brightness.dark,
             );
-  ColorScheme lightColorScheme;
-  ColorScheme darkColorScheme;
-
-  getSystemColorSchemeForBrightness(Brightness? brightness) {
-    if (brightness != null && brightness == Brightness.dark) {
-      return darkColorScheme;
     }
-    return lightColorScheme;
+    return lightColorScheme != null
+        ? ColorScheme.fromSeed(seedColor: darkColorScheme!.primary)
+        : ColorScheme.fromSeed(seedColor: defaultPrimaryColor);
   }
 }

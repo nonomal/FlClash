@@ -2,33 +2,37 @@ package com.follow.clash.plugins
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
-import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat.getSystemService
+import androidx.core.content.FileProvider
 import androidx.core.content.getSystemService
-import androidx.core.graphics.drawable.toBitmap
+import com.follow.clash.GlobalState
 import com.follow.clash.extensions.getBase64
-import com.follow.clash.extensions.getInetSocketAddress
 import com.follow.clash.extensions.getProtocol
-import com.follow.clash.models.Process
 import com.follow.clash.models.Package
+import com.follow.clash.models.Process
 import com.google.gson.Gson
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.InetSocketAddress
+
 
 class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
 
@@ -47,27 +51,38 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
     private val iconMap = mutableMapOf<String, String?>()
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        scope = CoroutineScope(Dispatchers.Default)
         context = flutterPluginBinding.applicationContext;
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "app")
         channel.setMethodCallHandler(this)
+
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        scope.cancel()
     }
 
     private fun tip(message: String?) {
-        if (toast != null) {
-            toast!!.cancel()
+        if (GlobalState.flutterEngine == null) {
+            if (toast != null) {
+                toast!!.cancel()
+            }
+            toast = Toast.makeText(context, message, Toast.LENGTH_SHORT)
+            toast!!.show()
         }
-        toast = Toast.makeText(context, message, Toast.LENGTH_SHORT)
-        toast!!.show()
     }
 
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+    override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "moveTaskToBack" -> {
                 activity?.moveTaskToBack(true)
+                result.success(true);
+            }
+
+            "updateExcludeFromRecents" -> {
+                val value = call.argument<Boolean>("value")
+                updateExcludeFromRecents(value)
                 result.success(true);
             }
 
@@ -115,7 +130,7 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 }
                 scope.launch {
                     withContext(Dispatchers.Default) {
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q){
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                             result.success(null)
                             return@withContext
                         }
@@ -152,9 +167,71 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
                 result.success(true)
             }
 
+            "openFile" -> {
+                val path = call.argument<String>("path")!!
+                openFile(path)
+                result.success(true)
+            }
+
             else -> {
                 result.notImplemented();
             }
+        }
+    }
+
+    private fun openFile(path: String) {
+        context?.let {
+            val file = File(path)
+            val uri = FileProvider.getUriForFile(
+                it,
+                "${it.packageName}.fileProvider",
+                file
+            )
+
+            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(
+                uri,
+                "text/plain"
+            )
+
+            val flags =
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
+
+            val resInfoList = it.packageManager.queryIntentActivities(
+                intent, PackageManager.MATCH_DEFAULT_ONLY
+            )
+
+            for (resolveInfo in resInfoList) {
+                val packageName = resolveInfo.activityInfo.packageName
+                it.grantUriPermission(
+                    packageName,
+                    uri,
+                    flags
+                )
+            }
+
+            try {
+                activity?.startActivity(intent)
+            } catch (e: Exception) {
+                println(e)
+            }
+        }
+    }
+
+    private fun updateExcludeFromRecents(value: Boolean?) {
+        if (context == null) return
+        val am = getSystemService(context!!, ActivityManager::class.java)
+        val task = am?.appTasks?.firstOrNull {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                it.taskInfo.taskId == activity?.taskId
+            } else {
+                it.taskInfo.id == activity?.taskId
+            }
+        }
+
+        when (value) {
+            true -> task?.setExcludeFromRecents(value)
+            false -> task?.setExcludeFromRecents(value)
+            null -> task?.setExcludeFromRecents(false)
         }
     }
 
@@ -197,11 +274,10 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity;
-        scope = CoroutineScope(Dispatchers.Default)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
-        activity = null;
+        activity = null
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
@@ -210,7 +286,6 @@ class AppPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware 
 
     override fun onDetachedFromActivity() {
         channel.invokeMethod("exit", null)
-        scope.cancel()
-        activity = null;
+        activity = null
     }
 }

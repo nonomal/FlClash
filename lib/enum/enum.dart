@@ -56,7 +56,20 @@ enum ProfileType { file, url }
 
 enum ResultType { success, error }
 
-enum MessageType { log, tun, delay, process, now, request, run }
+enum AppMessageType {
+  log,
+  delay,
+  request,
+  started,
+  loaded,
+}
+
+enum ServiceMessageType {
+  protect,
+  process,
+  started,
+  loaded,
+}
 
 enum FindProcessMode { always, off }
 
@@ -69,6 +82,6 @@ enum ChipType { action, delete }
 
 enum CommonCardType { plain, filled }
 
-enum ProxiesType { tab, expansion }
+enum ProxiesType { tab, list }
 
-enum ProxyCardType { expand, shrink }
+enum ProxyCardType { expand, shrink, min }

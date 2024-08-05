@@ -11,20 +11,23 @@ import android.net.VpnService
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.Parcel
+import android.os.RemoteException
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.follow.clash.GlobalState
 import com.follow.clash.MainActivity
 import com.follow.clash.R
 import com.follow.clash.models.AccessControlMode
 import com.follow.clash.models.Props
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 
 class FlClashVpnService : VpnService() {
-
-
     private val CHANNEL = "FlClash"
 
-    var fd: Int? = null
     private val notificationId: Int = 1
 
     private val passList = listOf(
@@ -47,12 +50,13 @@ class FlClashVpnService : VpnService() {
         "192.168.*"
     )
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
+    override fun onCreate() {
+        super.onCreate()
+        initServiceEngine()
     }
 
-    fun start(port: Int, props: Props?) {
-        fd = with(Builder()) {
+    fun start(port: Int, props: Props?): Int? {
+        return with(Builder()) {
             addAddress("172.16.0.1", 30)
             setMtu(9000)
             addRoute("0.0.0.0", 0)
@@ -98,7 +102,6 @@ class FlClashVpnService : VpnService() {
         stopForeground()
     }
 
-
     private val notificationBuilder: NotificationCompat.Builder by lazy {
         val intent = Intent(this, MainActivity::class.java)
 
@@ -117,7 +120,6 @@ class FlClashVpnService : VpnService() {
                 PendingIntent.FLAG_UPDATE_CURRENT
             )
         }
-
         with(NotificationCompat.Builder(this, CHANNEL)) {
             setSmallIcon(R.drawable.ic_stat_name)
             setContentTitle("FlClash")
@@ -130,8 +132,12 @@ class FlClashVpnService : VpnService() {
             setOngoing(true)
             setShowWhen(false)
             setOnlyAlertOnce(true)
-            setAutoCancel(true);
+            setAutoCancel(true)
         }
+    }
+
+    fun initServiceEngine() {
+        GlobalState.initServiceEngine(applicationContext)
     }
 
     override fun onTrimMemory(level: Int) {
@@ -168,14 +174,28 @@ class FlClashVpnService : VpnService() {
 
     inner class LocalBinder : Binder() {
         fun getService(): FlClashVpnService = this@FlClashVpnService
+
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            try {
+                val isSuccess = super.onTransact(code, data, reply, flags)
+                if (!isSuccess) {
+                    CoroutineScope(Dispatchers.Main).launch {
+                        GlobalState.getCurrentTitlePlugin()?.handleStop()
+                    }
+                }
+                return isSuccess
+            } catch (e: RemoteException) {
+                throw e
+            }
+        }
     }
+
 
     override fun onBind(intent: Intent): IBinder {
         return binder
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        GlobalState.getCurrentTilePlugin()?.handleStop();
         return super.onUnbind(intent)
     }
 

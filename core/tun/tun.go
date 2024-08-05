@@ -5,7 +5,6 @@ package tun
 import "C"
 import (
 	"context"
-	bridge "core/dart-bridge"
 	"encoding/binary"
 	"github.com/Kr328/tun2socket"
 	"github.com/Kr328/tun2socket/nat"
@@ -19,7 +18,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -185,20 +183,4 @@ func Start(fd int, gateway, portal, dns string) (io.Closer, error) {
 	go udp()
 
 	return stack, nil
-}
-
-func (t *Tun) MarkSocket(fd int) {
-	_ = t.Limit.Acquire(context.Background(), 1)
-	defer t.Limit.Release(1)
-
-	if t.Closed {
-		return
-	}
-
-	message := &bridge.Message{
-		Type: bridge.Tun,
-		Data: strconv.Itoa(fd),
-	}
-
-	bridge.SendMessage(*message)
 }

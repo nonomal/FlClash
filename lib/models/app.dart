@@ -8,6 +8,7 @@ import 'connection.dart';
 import 'ffi.dart';
 import 'log.dart';
 import 'navigation.dart';
+import 'package.dart';
 import 'profile.dart';
 import 'proxy.dart';
 import 'system_color_scheme.dart';
@@ -34,6 +35,9 @@ class AppState with ChangeNotifier {
   List<Group> _groups;
   double _viewWidth;
   List<Connection> _requests;
+  num _checkIpNum;
+  List<ExternalProvider> _providers;
+  List<Package> _packages;
 
   AppState({
     required Mode mode,
@@ -47,13 +51,16 @@ class AppState with ChangeNotifier {
         _viewWidth = 0,
         _selectedMap = selectedMap,
         _sortNum = 0,
+        _checkIpNum = 0,
         _requests = [],
         _mode = mode,
         _totalTraffic = Traffic(),
         _delayMap = {},
         _groups = [],
+        _providers = [],
+        _packages = [],
         _isCompatible = isCompatible,
-        _systemColorSchemes = SystemColorSchemes();
+        _systemColorSchemes = const SystemColorSchemes();
 
   String get currentLabel => _currentLabel;
 
@@ -107,7 +114,7 @@ class AppState with ChangeNotifier {
     }
   }
 
-  String getDesc(String type, String? proxyName) {
+  String getDesc(String type, String proxyName) {
     final groupTypeNamesList = GroupType.values.map((e) => e.name).toList();
     if (!groupTypeNamesList.contains(type)) {
       return type;
@@ -118,14 +125,17 @@ class AppState with ChangeNotifier {
     }
   }
 
-  String? getRealProxyName(String? proxyName) {
-    if (proxyName == null) return null;
+  String getRealProxyName(String proxyName) {
+    if (proxyName.isEmpty) return proxyName;
     final index = groups.indexWhere((element) => element.name == proxyName);
     if (index == -1) return proxyName;
     final group = groups[index];
-    return getRealProxyName(selectedMap.containsKey(proxyName)
-        ? selectedMap[proxyName]
-        : group.now);
+    final currentSelectedName =
+        group.getCurrentSelectedName(selectedMap[proxyName] ?? '');
+    if (currentSelectedName.isEmpty) return proxyName;
+    return getRealProxyName(
+      currentSelectedName,
+    );
   }
 
   String? get showProxyName {
@@ -137,7 +147,7 @@ class AppState with ChangeNotifier {
     return selectedMap[firstGroupName] ?? firstGroup.now;
   }
 
-  int? getDelay(String? proxyName) {
+  int? getDelay(String proxyName) {
     return _delayMap[getRealProxyName(proxyName)];
   }
 
@@ -240,6 +250,15 @@ class AppState with ChangeNotifier {
     }
   }
 
+  num get checkIpNum => _checkIpNum;
+
+  set checkIpNum(num value) {
+    if (_checkIpNum != value) {
+      _checkIpNum = value;
+      notifyListeners();
+    }
+  }
+
   Mode get mode => _mode;
 
   set mode(Mode value) {
@@ -281,6 +300,7 @@ class AppState with ChangeNotifier {
             .toList();
       case Mode.rule:
         return groups
+            .where((item) => item.hidden == false)
             .where((element) => element.name != GroupName.GLOBAL.name)
             .toList();
     }
@@ -313,6 +333,31 @@ class AppState with ChangeNotifier {
       _delayMap = Map.from(_delayMap)..[delay.name] = delay.value;
       notifyListeners();
     }
+  }
+
+  List<Package> get packages => _packages;
+
+  set packages(List<Package> value) {
+    if (!const ListEquality<Package>().equals(_packages, value)) {
+      _packages = value;
+      notifyListeners();
+    }
+  }
+
+  List<ExternalProvider> get providers => _providers;
+
+  set providers(List<ExternalProvider> value) {
+    if (!const ListEquality<ExternalProvider>().equals(_providers, value)) {
+      _providers = value;
+      notifyListeners();
+    }
+  }
+
+  setProvider(ExternalProvider provider) {
+    final index = _providers.indexWhere((item) => item.name == provider.name);
+    if (index == -1) return;
+    _providers = List.from(_providers)..[index] = provider;
+    notifyListeners();
   }
 
   Group? getGroupWithName(String groupName) {

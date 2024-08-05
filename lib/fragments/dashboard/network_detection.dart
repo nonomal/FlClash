@@ -18,47 +18,37 @@ class _NetworkDetectionState extends State<NetworkDetection> {
   final ipInfoNotifier = ValueNotifier<IpInfo?>(null);
   final timeoutNotifier = ValueNotifier<bool>(false);
   bool? _preIsStart;
-  CancelToken? cancelToken;
   Function? _checkIpDebounce;
 
-  _checkIp(
-    bool isInit,
-    bool isStart,
-  ) async {
+  _checkIp() async {
+    final appState = globalState.appController.appState;
+    final isInit = appState.isInit;
+    final isStart = appState.isStart;
     if (!isInit) return;
     timeoutNotifier.value = false;
     if (_preIsStart == false && _preIsStart == isStart) return;
-    if (cancelToken != null) {
-      cancelToken!.cancel();
-      cancelToken = null;
-    }
+    _preIsStart = isStart;
     ipInfoNotifier.value = null;
-    final ipInfo = await request.checkIp(cancelToken);
+    final ipInfo = await request.checkIp();
     if (ipInfo == null) {
       timeoutNotifier.value = true;
       return;
     } else {
       timeoutNotifier.value = false;
     }
-    _preIsStart = isStart;
     ipInfoNotifier.value = ipInfo;
   }
 
   _checkIpContainer(Widget child) {
-    _checkIpDebounce = debounce(_checkIp);
-    return Selector2<AppState, Config, CheckIpSelectorState>(
-      selector: (_, appState, config) {
-        return CheckIpSelectorState(
-          isInit: appState.isInit,
-          selectedMap: appState.selectedMap,
-          isStart: appState.isStart,
-        );
+    return Selector<AppState, num>(
+      selector: (_, appState) {
+        return appState.checkIpNum;
       },
-      builder: (_, state, __) {
+      builder: (_, checkIpNum, child) {
         if (_checkIpDebounce != null) {
-          _checkIpDebounce!([state.isInit, state.isStart]);
+          _checkIpDebounce!();
         }
-        return child;
+        return child!;
       },
       child: child,
     );
@@ -73,6 +63,7 @@ class _NetworkDetectionState extends State<NetworkDetection> {
 
   @override
   Widget build(BuildContext context) {
+    _checkIpDebounce = debounce(_checkIp);
     return _checkIpContainer(
       ValueListenableBuilder<IpInfo?>(
         valueListenable: ipInfoNotifier,
@@ -137,7 +128,7 @@ class _NetworkDetectionState extends State<NetworkDetection> {
                 Container(
                   height: globalState.appController.measure.titleLargeHeight +
                       24 -
-                      1,
+                      2,
                   alignment: Alignment.centerLeft,
                   padding: const EdgeInsets.all(16).copyWith(top: 0),
                   child: FadeBox(

@@ -240,36 +240,45 @@ abstract class _AccessControl implements AccessControl {
       throw _privateConstructorUsedError;
 }
 
-Props _$PropsFromJson(Map<String, dynamic> json) {
-  return _Props.fromJson(json);
+CoreState _$CoreStateFromJson(Map<String, dynamic> json) {
+  return _CoreState.fromJson(json);
 }
 
 /// @nodoc
-mixin _$Props {
+mixin _$CoreState {
   AccessControl? get accessControl => throw _privateConstructorUsedError;
-  bool? get allowBypass => throw _privateConstructorUsedError;
-  bool? get systemProxy => throw _privateConstructorUsedError;
+  String get currentProfileName => throw _privateConstructorUsedError;
+  bool get allowBypass => throw _privateConstructorUsedError;
+  bool get systemProxy => throw _privateConstructorUsedError;
+  int get mixedPort => throw _privateConstructorUsedError;
+  bool get onlyProxy => throw _privateConstructorUsedError;
 
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
   @JsonKey(ignore: true)
-  $PropsCopyWith<Props> get copyWith => throw _privateConstructorUsedError;
+  $CoreStateCopyWith<CoreState> get copyWith =>
+      throw _privateConstructorUsedError;
 }
 
 /// @nodoc
-abstract class $PropsCopyWith<$Res> {
-  factory $PropsCopyWith(Props value, $Res Function(Props) then) =
-      _$PropsCopyWithImpl<$Res, Props>;
+abstract class $CoreStateCopyWith<$Res> {
+  factory $CoreStateCopyWith(CoreState value, $Res Function(CoreState) then) =
+      _$CoreStateCopyWithImpl<$Res, CoreState>;
   @useResult
   $Res call(
-      {AccessControl? accessControl, bool? allowBypass, bool? systemProxy});
+      {AccessControl? accessControl,
+      String currentProfileName,
+      bool allowBypass,
+      bool systemProxy,
+      int mixedPort,
+      bool onlyProxy});
 
   $AccessControlCopyWith<$Res>? get accessControl;
 }
 
 /// @nodoc
-class _$PropsCopyWithImpl<$Res, $Val extends Props>
-    implements $PropsCopyWith<$Res> {
-  _$PropsCopyWithImpl(this._value, this._then);
+class _$CoreStateCopyWithImpl<$Res, $Val extends CoreState>
+    implements $CoreStateCopyWith<$Res> {
+  _$CoreStateCopyWithImpl(this._value, this._then);
 
   // ignore: unused_field
   final $Val _value;
@@ -280,22 +289,37 @@ class _$PropsCopyWithImpl<$Res, $Val extends Props>
   @override
   $Res call({
     Object? accessControl = freezed,
-    Object? allowBypass = freezed,
-    Object? systemProxy = freezed,
+    Object? currentProfileName = null,
+    Object? allowBypass = null,
+    Object? systemProxy = null,
+    Object? mixedPort = null,
+    Object? onlyProxy = null,
   }) {
     return _then(_value.copyWith(
       accessControl: freezed == accessControl
           ? _value.accessControl
           : accessControl // ignore: cast_nullable_to_non_nullable
               as AccessControl?,
-      allowBypass: freezed == allowBypass
+      currentProfileName: null == currentProfileName
+          ? _value.currentProfileName
+          : currentProfileName // ignore: cast_nullable_to_non_nullable
+              as String,
+      allowBypass: null == allowBypass
           ? _value.allowBypass
           : allowBypass // ignore: cast_nullable_to_non_nullable
-              as bool?,
-      systemProxy: freezed == systemProxy
+              as bool,
+      systemProxy: null == systemProxy
           ? _value.systemProxy
           : systemProxy // ignore: cast_nullable_to_non_nullable
-              as bool?,
+              as bool,
+      mixedPort: null == mixedPort
+          ? _value.mixedPort
+          : mixedPort // ignore: cast_nullable_to_non_nullable
+              as int,
+      onlyProxy: null == onlyProxy
+          ? _value.onlyProxy
+          : onlyProxy // ignore: cast_nullable_to_non_nullable
+              as bool,
     ) as $Val);
   }
 
@@ -313,119 +337,359 @@ class _$PropsCopyWithImpl<$Res, $Val extends Props>
 }
 
 /// @nodoc
-abstract class _$$PropsImplCopyWith<$Res> implements $PropsCopyWith<$Res> {
-  factory _$$PropsImplCopyWith(
-          _$PropsImpl value, $Res Function(_$PropsImpl) then) =
-      __$$PropsImplCopyWithImpl<$Res>;
+abstract class _$$CoreStateImplCopyWith<$Res>
+    implements $CoreStateCopyWith<$Res> {
+  factory _$$CoreStateImplCopyWith(
+          _$CoreStateImpl value, $Res Function(_$CoreStateImpl) then) =
+      __$$CoreStateImplCopyWithImpl<$Res>;
   @override
   @useResult
   $Res call(
-      {AccessControl? accessControl, bool? allowBypass, bool? systemProxy});
+      {AccessControl? accessControl,
+      String currentProfileName,
+      bool allowBypass,
+      bool systemProxy,
+      int mixedPort,
+      bool onlyProxy});
 
   @override
   $AccessControlCopyWith<$Res>? get accessControl;
 }
 
 /// @nodoc
-class __$$PropsImplCopyWithImpl<$Res>
-    extends _$PropsCopyWithImpl<$Res, _$PropsImpl>
-    implements _$$PropsImplCopyWith<$Res> {
-  __$$PropsImplCopyWithImpl(
-      _$PropsImpl _value, $Res Function(_$PropsImpl) _then)
+class __$$CoreStateImplCopyWithImpl<$Res>
+    extends _$CoreStateCopyWithImpl<$Res, _$CoreStateImpl>
+    implements _$$CoreStateImplCopyWith<$Res> {
+  __$$CoreStateImplCopyWithImpl(
+      _$CoreStateImpl _value, $Res Function(_$CoreStateImpl) _then)
       : super(_value, _then);
 
   @pragma('vm:prefer-inline')
   @override
   $Res call({
     Object? accessControl = freezed,
-    Object? allowBypass = freezed,
-    Object? systemProxy = freezed,
+    Object? currentProfileName = null,
+    Object? allowBypass = null,
+    Object? systemProxy = null,
+    Object? mixedPort = null,
+    Object? onlyProxy = null,
   }) {
-    return _then(_$PropsImpl(
+    return _then(_$CoreStateImpl(
       accessControl: freezed == accessControl
           ? _value.accessControl
           : accessControl // ignore: cast_nullable_to_non_nullable
               as AccessControl?,
-      allowBypass: freezed == allowBypass
+      currentProfileName: null == currentProfileName
+          ? _value.currentProfileName
+          : currentProfileName // ignore: cast_nullable_to_non_nullable
+              as String,
+      allowBypass: null == allowBypass
           ? _value.allowBypass
           : allowBypass // ignore: cast_nullable_to_non_nullable
-              as bool?,
-      systemProxy: freezed == systemProxy
+              as bool,
+      systemProxy: null == systemProxy
           ? _value.systemProxy
           : systemProxy // ignore: cast_nullable_to_non_nullable
-              as bool?,
+              as bool,
+      mixedPort: null == mixedPort
+          ? _value.mixedPort
+          : mixedPort // ignore: cast_nullable_to_non_nullable
+              as int,
+      onlyProxy: null == onlyProxy
+          ? _value.onlyProxy
+          : onlyProxy // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }
 
 /// @nodoc
 @JsonSerializable()
-class _$PropsImpl implements _Props {
-  const _$PropsImpl({this.accessControl, this.allowBypass, this.systemProxy});
+class _$CoreStateImpl implements _CoreState {
+  const _$CoreStateImpl(
+      {this.accessControl,
+      required this.currentProfileName,
+      required this.allowBypass,
+      required this.systemProxy,
+      required this.mixedPort,
+      required this.onlyProxy});
 
-  factory _$PropsImpl.fromJson(Map<String, dynamic> json) =>
-      _$$PropsImplFromJson(json);
+  factory _$CoreStateImpl.fromJson(Map<String, dynamic> json) =>
+      _$$CoreStateImplFromJson(json);
 
   @override
   final AccessControl? accessControl;
   @override
-  final bool? allowBypass;
+  final String currentProfileName;
   @override
-  final bool? systemProxy;
+  final bool allowBypass;
+  @override
+  final bool systemProxy;
+  @override
+  final int mixedPort;
+  @override
+  final bool onlyProxy;
 
   @override
   String toString() {
-    return 'Props(accessControl: $accessControl, allowBypass: $allowBypass, systemProxy: $systemProxy)';
+    return 'CoreState(accessControl: $accessControl, currentProfileName: $currentProfileName, allowBypass: $allowBypass, systemProxy: $systemProxy, mixedPort: $mixedPort, onlyProxy: $onlyProxy)';
   }
 
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||
         (other.runtimeType == runtimeType &&
-            other is _$PropsImpl &&
+            other is _$CoreStateImpl &&
             (identical(other.accessControl, accessControl) ||
                 other.accessControl == accessControl) &&
+            (identical(other.currentProfileName, currentProfileName) ||
+                other.currentProfileName == currentProfileName) &&
             (identical(other.allowBypass, allowBypass) ||
                 other.allowBypass == allowBypass) &&
             (identical(other.systemProxy, systemProxy) ||
-                other.systemProxy == systemProxy));
+                other.systemProxy == systemProxy) &&
+            (identical(other.mixedPort, mixedPort) ||
+                other.mixedPort == mixedPort) &&
+            (identical(other.onlyProxy, onlyProxy) ||
+                other.onlyProxy == onlyProxy));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode =>
-      Object.hash(runtimeType, accessControl, allowBypass, systemProxy);
+  int get hashCode => Object.hash(runtimeType, accessControl,
+      currentProfileName, allowBypass, systemProxy, mixedPort, onlyProxy);
 
   @JsonKey(ignore: true)
   @override
   @pragma('vm:prefer-inline')
-  _$$PropsImplCopyWith<_$PropsImpl> get copyWith =>
-      __$$PropsImplCopyWithImpl<_$PropsImpl>(this, _$identity);
+  _$$CoreStateImplCopyWith<_$CoreStateImpl> get copyWith =>
+      __$$CoreStateImplCopyWithImpl<_$CoreStateImpl>(this, _$identity);
 
   @override
   Map<String, dynamic> toJson() {
-    return _$$PropsImplToJson(
+    return _$$CoreStateImplToJson(
       this,
     );
   }
 }
 
-abstract class _Props implements Props {
-  const factory _Props(
+abstract class _CoreState implements CoreState {
+  const factory _CoreState(
       {final AccessControl? accessControl,
-      final bool? allowBypass,
-      final bool? systemProxy}) = _$PropsImpl;
+      required final String currentProfileName,
+      required final bool allowBypass,
+      required final bool systemProxy,
+      required final int mixedPort,
+      required final bool onlyProxy}) = _$CoreStateImpl;
 
-  factory _Props.fromJson(Map<String, dynamic> json) = _$PropsImpl.fromJson;
+  factory _CoreState.fromJson(Map<String, dynamic> json) =
+      _$CoreStateImpl.fromJson;
 
   @override
   AccessControl? get accessControl;
   @override
-  bool? get allowBypass;
+  String get currentProfileName;
   @override
-  bool? get systemProxy;
+  bool get allowBypass;
+  @override
+  bool get systemProxy;
+  @override
+  int get mixedPort;
+  @override
+  bool get onlyProxy;
   @override
   @JsonKey(ignore: true)
-  _$$PropsImplCopyWith<_$PropsImpl> get copyWith =>
+  _$$CoreStateImplCopyWith<_$CoreStateImpl> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+WindowProps _$WindowPropsFromJson(Map<String, dynamic> json) {
+  return _WindowProps.fromJson(json);
+}
+
+/// @nodoc
+mixin _$WindowProps {
+  double get width => throw _privateConstructorUsedError;
+  double get height => throw _privateConstructorUsedError;
+  double? get top => throw _privateConstructorUsedError;
+  double? get left => throw _privateConstructorUsedError;
+
+  Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
+  @JsonKey(ignore: true)
+  $WindowPropsCopyWith<WindowProps> get copyWith =>
+      throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class $WindowPropsCopyWith<$Res> {
+  factory $WindowPropsCopyWith(
+          WindowProps value, $Res Function(WindowProps) then) =
+      _$WindowPropsCopyWithImpl<$Res, WindowProps>;
+  @useResult
+  $Res call({double width, double height, double? top, double? left});
+}
+
+/// @nodoc
+class _$WindowPropsCopyWithImpl<$Res, $Val extends WindowProps>
+    implements $WindowPropsCopyWith<$Res> {
+  _$WindowPropsCopyWithImpl(this._value, this._then);
+
+  // ignore: unused_field
+  final $Val _value;
+  // ignore: unused_field
+  final $Res Function($Val) _then;
+
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? width = null,
+    Object? height = null,
+    Object? top = freezed,
+    Object? left = freezed,
+  }) {
+    return _then(_value.copyWith(
+      width: null == width
+          ? _value.width
+          : width // ignore: cast_nullable_to_non_nullable
+              as double,
+      height: null == height
+          ? _value.height
+          : height // ignore: cast_nullable_to_non_nullable
+              as double,
+      top: freezed == top
+          ? _value.top
+          : top // ignore: cast_nullable_to_non_nullable
+              as double?,
+      left: freezed == left
+          ? _value.left
+          : left // ignore: cast_nullable_to_non_nullable
+              as double?,
+    ) as $Val);
+  }
+}
+
+/// @nodoc
+abstract class _$$WindowPropsImplCopyWith<$Res>
+    implements $WindowPropsCopyWith<$Res> {
+  factory _$$WindowPropsImplCopyWith(
+          _$WindowPropsImpl value, $Res Function(_$WindowPropsImpl) then) =
+      __$$WindowPropsImplCopyWithImpl<$Res>;
+  @override
+  @useResult
+  $Res call({double width, double height, double? top, double? left});
+}
+
+/// @nodoc
+class __$$WindowPropsImplCopyWithImpl<$Res>
+    extends _$WindowPropsCopyWithImpl<$Res, _$WindowPropsImpl>
+    implements _$$WindowPropsImplCopyWith<$Res> {
+  __$$WindowPropsImplCopyWithImpl(
+      _$WindowPropsImpl _value, $Res Function(_$WindowPropsImpl) _then)
+      : super(_value, _then);
+
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? width = null,
+    Object? height = null,
+    Object? top = freezed,
+    Object? left = freezed,
+  }) {
+    return _then(_$WindowPropsImpl(
+      width: null == width
+          ? _value.width
+          : width // ignore: cast_nullable_to_non_nullable
+              as double,
+      height: null == height
+          ? _value.height
+          : height // ignore: cast_nullable_to_non_nullable
+              as double,
+      top: freezed == top
+          ? _value.top
+          : top // ignore: cast_nullable_to_non_nullable
+              as double?,
+      left: freezed == left
+          ? _value.left
+          : left // ignore: cast_nullable_to_non_nullable
+              as double?,
+    ));
+  }
+}
+
+/// @nodoc
+@JsonSerializable()
+class _$WindowPropsImpl implements _WindowProps {
+  const _$WindowPropsImpl(
+      {this.width = 1000, this.height = 600, this.top, this.left});
+
+  factory _$WindowPropsImpl.fromJson(Map<String, dynamic> json) =>
+      _$$WindowPropsImplFromJson(json);
+
+  @override
+  @JsonKey()
+  final double width;
+  @override
+  @JsonKey()
+  final double height;
+  @override
+  final double? top;
+  @override
+  final double? left;
+
+  @override
+  String toString() {
+    return 'WindowProps(width: $width, height: $height, top: $top, left: $left)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$WindowPropsImpl &&
+            (identical(other.width, width) || other.width == width) &&
+            (identical(other.height, height) || other.height == height) &&
+            (identical(other.top, top) || other.top == top) &&
+            (identical(other.left, left) || other.left == left));
+  }
+
+  @JsonKey(ignore: true)
+  @override
+  int get hashCode => Object.hash(runtimeType, width, height, top, left);
+
+  @JsonKey(ignore: true)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$WindowPropsImplCopyWith<_$WindowPropsImpl> get copyWith =>
+      __$$WindowPropsImplCopyWithImpl<_$WindowPropsImpl>(this, _$identity);
+
+  @override
+  Map<String, dynamic> toJson() {
+    return _$$WindowPropsImplToJson(
+      this,
+    );
+  }
+}
+
+abstract class _WindowProps implements WindowProps {
+  const factory _WindowProps(
+      {final double width,
+      final double height,
+      final double? top,
+      final double? left}) = _$WindowPropsImpl;
+
+  factory _WindowProps.fromJson(Map<String, dynamic> json) =
+      _$WindowPropsImpl.fromJson;
+
+  @override
+  double get width;
+  @override
+  double get height;
+  @override
+  double? get top;
+  @override
+  double? get left;
+  @override
+  @JsonKey(ignore: true)
+  _$$WindowPropsImplCopyWith<_$WindowPropsImpl> get copyWith =>
       throw _privateConstructorUsedError;
 }

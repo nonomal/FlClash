@@ -5248,7 +5248,7 @@ class ClashFFI {
   late final _getProxies =
       _getProxiesPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
-  int changeProxy(
+  void changeProxy(
     ffi.Pointer<ffi.Char> s,
   ) {
     return _changeProxy(
@@ -5257,10 +5257,10 @@ class ClashFFI {
   }
 
   late final _changeProxyPtr =
-      _lookup<ffi.NativeFunction<GoUint8 Function(ffi.Pointer<ffi.Char>)>>(
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
           'changeProxy');
   late final _changeProxy =
-      _changeProxyPtr.asFunction<int Function(ffi.Pointer<ffi.Char>)>();
+      _changeProxyPtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 
   ffi.Pointer<ffi.Char> getTraffic() {
     return _getTraffic();
@@ -5327,16 +5327,16 @@ class ClashFFI {
   late final _getConnections =
       _getConnectionsPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
-  int closeConnections() {
+  void closeConnections() {
     return _closeConnections();
   }
 
   late final _closeConnectionsPtr =
-      _lookup<ffi.NativeFunction<GoUint8 Function()>>('closeConnections');
+      _lookup<ffi.NativeFunction<ffi.Void Function()>>('closeConnections');
   late final _closeConnections =
-      _closeConnectionsPtr.asFunction<int Function()>();
+      _closeConnectionsPtr.asFunction<void Function()>();
 
-  int closeConnection(
+  void closeConnection(
     ffi.Pointer<ffi.Char> id,
   ) {
     return _closeConnection(
@@ -5345,10 +5345,10 @@ class ClashFFI {
   }
 
   late final _closeConnectionPtr =
-      _lookup<ffi.NativeFunction<GoUint8 Function(ffi.Pointer<ffi.Char>)>>(
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
           'closeConnection');
   late final _closeConnection =
-      _closeConnectionPtr.asFunction<int Function(ffi.Pointer<ffi.Char>)>();
+      _closeConnectionPtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 
   ffi.Pointer<ffi.Char> getProviders() {
     return _getProviders();
@@ -5385,6 +5385,21 @@ class ClashFFI {
   late final _getExternalProviders =
       _getExternalProvidersPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  ffi.Pointer<ffi.Char> getExternalProvider(
+    ffi.Pointer<ffi.Char> name,
+  ) {
+    return _getExternalProvider(
+      name,
+    );
+  }
+
+  late final _getExternalProviderPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<ffi.Char>)>>('getExternalProvider');
+  late final _getExternalProvider = _getExternalProviderPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
   void updateExternalProvider(
     ffi.Pointer<ffi.Char> providerName,
     ffi.Pointer<ffi.Char> providerType,
@@ -5406,20 +5421,30 @@ class ClashFFI {
 
   void initNativeApiBridge(
     ffi.Pointer<ffi.Void> api,
-    int port,
   ) {
     return _initNativeApiBridge(
       api,
+    );
+  }
+
+  late final _initNativeApiBridgePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
+          'initNativeApiBridge');
+  late final _initNativeApiBridge = _initNativeApiBridgePtr
+      .asFunction<void Function(ffi.Pointer<ffi.Void>)>();
+
+  void initMessage(
+    int port,
+  ) {
+    return _initMessage(
       port,
     );
   }
 
-  late final _initNativeApiBridgePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Void Function(
-              ffi.Pointer<ffi.Void>, ffi.LongLong)>>('initNativeApiBridge');
-  late final _initNativeApiBridge = _initNativeApiBridgePtr
-      .asFunction<void Function(ffi.Pointer<ffi.Void>, int)>();
+  late final _initMessagePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.LongLong)>>(
+          'initMessage');
+  late final _initMessage = _initMessagePtr.asFunction<void Function(int)>();
 
   void freeCString(
     ffi.Pointer<ffi.Char> s,
@@ -5465,17 +5490,53 @@ class ClashFFI {
   late final _setProcessMap =
       _setProcessMapPtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 
+  ffi.Pointer<ffi.Char> getState() {
+    return _getState();
+  }
+
+  late final _getStatePtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>('getState');
+  late final _getState =
+      _getStatePtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  void setState(
+    ffi.Pointer<ffi.Char> s,
+  ) {
+    return _setState(
+      s,
+    );
+  }
+
+  late final _setStatePtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
+          'setState');
+  late final _setState =
+      _setStatePtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
+
   void startTUN(
     int fd,
+    int port,
   ) {
     return _startTUN(
       fd,
+      port,
     );
   }
 
   late final _startTUNPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int)>>('startTUN');
-  late final _startTUN = _startTUNPtr.asFunction<void Function(int)>();
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int, ffi.LongLong)>>(
+          'startTUN');
+  late final _startTUN = _startTUNPtr.asFunction<void Function(int, int)>();
+
+  ffi.Pointer<ffi.Char> getRunTime() {
+    return _getRunTime();
+  }
+
+  late final _getRunTimePtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+          'getRunTime');
+  late final _getRunTime =
+      _getRunTimePtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
   void stopTun() {
     return _stopTun();
@@ -5484,6 +5545,18 @@ class ClashFFI {
   late final _stopTunPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function()>>('stopTun');
   late final _stopTun = _stopTunPtr.asFunction<void Function()>();
+
+  void setFdMap(
+    int fd,
+  ) {
+    return _setFdMap(
+      fd,
+    );
+  }
+
+  late final _setFdMapPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Long)>>('setFdMap');
+  late final _setFdMap = _setFdMapPtr.asFunction<void Function(int)>();
 }
 
 typedef va_list = ffi.Pointer<ffi.Char>;

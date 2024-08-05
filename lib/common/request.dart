@@ -12,20 +12,21 @@ class Request {
   bool _isStart = false;
 
   Request() {
-    _dio = Dio(
-      BaseOptions(
-        headers: {"User-Agent": coreName},
+    _dio = Dio();
+    _dio.options = BaseOptions(
+      headers: {"User-Agent": globalState.appController.clashConfig.globalUa},
+    );
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          _updateAdapter();
+          return handler.next(options); // 继续请求
+        },
       ),
     );
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        _syncProxy();
-        return handler.next(options); // 继续请求
-      },
-    ));
   }
 
-  _syncProxy() {
+  _updateAdapter() {
     final port = globalState.appController.clashConfig.mixedPort;
     final isStart = globalState.appController.appState.isStart;
     if (_port != port || isStart != _isStart) {
@@ -35,11 +36,13 @@ class Request {
         createHttpClient: () {
           final client = HttpClient();
           if (!_isStart) return client;
+          client.userAgent = globalState.appController.clashConfig.globalUa;
           client.findProxy = (url) {
             return "PROXY localhost:$_port;DIRECT";
           };
           return client;
         },
+        validateCertificate: (_, __, ___) => true,
       );
     }
   }
@@ -68,8 +71,7 @@ class Request {
     if (response.statusCode != 200) return null;
     final data = response.data as Map<String, dynamic>;
     final remoteVersion = data['tag_name'];
-    final packageInfo = await appPackage.packageInfoCompleter.future;
-    final version = packageInfo.version;
+    final version = globalState.packageInfo.version;
     final hasUpdate =
         other.compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
     if (!hasUpdate) return null;
@@ -83,7 +85,7 @@ class Request {
     "https://ipinfo.io/json/": IpInfo.fromIpInfoIoJson,
   };
 
-  Future<IpInfo?> checkIp(CancelToken? cancelToken) async {
+  Future<IpInfo?> checkIp({CancelToken? cancelToken}) async {
     for (final source in _ipInfoSources.entries) {
       try {
         final response = await _dio

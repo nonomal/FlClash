@@ -34,14 +34,22 @@ Config _$ConfigFromJson(Map<String, dynamic> json) => Config()
   ..isCompatible = json['isCompatible'] as bool? ?? true
   ..autoCheckUpdate = json['autoCheckUpdate'] as bool? ?? true
   ..allowBypass = json['allowBypass'] as bool? ?? true
-  ..systemProxy = json['systemProxy'] as bool? ?? true
-  ..proxiesType =
-      $enumDecodeNullable(_$ProxiesTypeEnumMap, json['proxiesType']) ??
-          ProxiesType.tab
+  ..systemProxy = json['systemProxy'] as bool? ?? false
+  ..onlyProxy = json['onlyProxy'] as bool? ?? false
+  ..prueBlack = json['prueBlack'] as bool? ?? false
+  ..isCloseConnections = json['isCloseConnections'] as bool? ?? false
+  ..proxiesType = $enumDecodeNullable(_$ProxiesTypeEnumMap, json['proxiesType'],
+          unknownValue: ProxiesType.tab) ??
+      ProxiesType.tab
   ..proxyCardType =
       $enumDecodeNullable(_$ProxyCardTypeEnumMap, json['proxyCardType']) ??
           ProxyCardType.expand
-  ..proxiesColumns = (json['proxiesColumns'] as num?)?.toInt() ?? 2;
+  ..proxiesColumns = (json['proxiesColumns'] as num?)?.toInt() ?? 2
+  ..testUrl =
+      json['test-url'] as String? ?? 'https://www.gstatic.com/generate_204'
+  ..isExclude = json['isExclude'] as bool? ?? false
+  ..windowProps =
+      WindowProps.fromJson(json['windowProps'] as Map<String, dynamic>?);
 
 Map<String, dynamic> _$ConfigToJson(Config instance) => <String, dynamic>{
       'profiles': instance.profiles,
@@ -63,9 +71,15 @@ Map<String, dynamic> _$ConfigToJson(Config instance) => <String, dynamic>{
       'autoCheckUpdate': instance.autoCheckUpdate,
       'allowBypass': instance.allowBypass,
       'systemProxy': instance.systemProxy,
+      'onlyProxy': instance.onlyProxy,
+      'prueBlack': instance.prueBlack,
+      'isCloseConnections': instance.isCloseConnections,
       'proxiesType': _$ProxiesTypeEnumMap[instance.proxiesType]!,
       'proxyCardType': _$ProxyCardTypeEnumMap[instance.proxyCardType]!,
       'proxiesColumns': instance.proxiesColumns,
+      'test-url': instance.testUrl,
+      'isExclude': instance.isExclude,
+      'windowProps': instance.windowProps,
     };
 
 const _$ThemeModeEnumMap = {
@@ -82,12 +96,13 @@ const _$ProxiesSortTypeEnumMap = {
 
 const _$ProxiesTypeEnumMap = {
   ProxiesType.tab: 'tab',
-  ProxiesType.expansion: 'expansion',
+  ProxiesType.list: 'list',
 };
 
 const _$ProxyCardTypeEnumMap = {
   ProxyCardType.expand: 'expand',
   ProxyCardType.shrink: 'shrink',
+  ProxyCardType.min: 'min',
 };
 
 _$AccessControlImpl _$$AccessControlImplFromJson(Map<String, dynamic> json) =>
@@ -118,18 +133,41 @@ const _$AccessControlModeEnumMap = {
   AccessControlMode.rejectSelected: 'rejectSelected',
 };
 
-_$PropsImpl _$$PropsImplFromJson(Map<String, dynamic> json) => _$PropsImpl(
+_$CoreStateImpl _$$CoreStateImplFromJson(Map<String, dynamic> json) =>
+    _$CoreStateImpl(
       accessControl: json['accessControl'] == null
           ? null
           : AccessControl.fromJson(
               json['accessControl'] as Map<String, dynamic>),
-      allowBypass: json['allowBypass'] as bool?,
-      systemProxy: json['systemProxy'] as bool?,
+      currentProfileName: json['currentProfileName'] as String,
+      allowBypass: json['allowBypass'] as bool,
+      systemProxy: json['systemProxy'] as bool,
+      mixedPort: (json['mixedPort'] as num).toInt(),
+      onlyProxy: json['onlyProxy'] as bool,
     );
 
-Map<String, dynamic> _$$PropsImplToJson(_$PropsImpl instance) =>
+Map<String, dynamic> _$$CoreStateImplToJson(_$CoreStateImpl instance) =>
     <String, dynamic>{
       'accessControl': instance.accessControl,
+      'currentProfileName': instance.currentProfileName,
       'allowBypass': instance.allowBypass,
       'systemProxy': instance.systemProxy,
+      'mixedPort': instance.mixedPort,
+      'onlyProxy': instance.onlyProxy,
+    };
+
+_$WindowPropsImpl _$$WindowPropsImplFromJson(Map<String, dynamic> json) =>
+    _$WindowPropsImpl(
+      width: (json['width'] as num?)?.toDouble() ?? 1000,
+      height: (json['height'] as num?)?.toDouble() ?? 600,
+      top: (json['top'] as num?)?.toDouble(),
+      left: (json['left'] as num?)?.toDouble(),
+    );
+
+Map<String, dynamic> _$$WindowPropsImplToJson(_$WindowPropsImpl instance) =>
+    <String, dynamic>{
+      'width': instance.width,
+      'height': instance.height,
+      'top': instance.top,
+      'left': instance.left,
     };

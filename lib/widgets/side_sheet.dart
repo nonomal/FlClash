@@ -84,8 +84,8 @@ class _SideSheetState extends State<SideSheet> {
           borderRadius: BorderRadius.circular(0),
         );
 
-    final BoxConstraints constraints =
-        widget.constraints ?? const BoxConstraints(maxWidth: 320);
+    final BoxConstraints constraints = widget.constraints ??
+        const BoxConstraints(maxWidth: 320, minWidth: 320);
 
     final Clip clipBehavior = widget.clipBehavior ?? Clip.none;
 
@@ -403,27 +403,26 @@ class _ModalSideSheetState<T> extends State<_ModalSideSheet<T>> {
 }
 
 class ModalSideSheetRoute<T> extends PopupRoute<T> {
-  ModalSideSheetRoute({
-    required this.builder,
-    this.capturedThemes,
-    this.barrierLabel,
-    this.barrierOnTapHint,
-    this.backgroundColor,
-    this.elevation,
-    this.shape,
-    this.clipBehavior,
-    this.constraints,
-    this.modalBarrierColor,
-    this.isDismissible = true,
-    this.isScrollControlled = false,
-    this.scrollControlDisabledMaxHeightRatio =
-        _defaultScrollControlDisabledMaxHeightRatio,
-    super.settings,
-    this.transitionAnimationController,
-    this.anchorPoint,
-    this.useSafeArea = false,
-    super.filter
-  });
+  ModalSideSheetRoute(
+      {required this.builder,
+      this.capturedThemes,
+      this.barrierLabel,
+      this.barrierOnTapHint,
+      this.backgroundColor,
+      this.elevation,
+      this.shape,
+      this.clipBehavior,
+      this.constraints,
+      this.modalBarrierColor,
+      this.isDismissible = true,
+      this.isScrollControlled = false,
+      this.scrollControlDisabledMaxHeightRatio =
+          _defaultScrollControlDisabledMaxHeightRatio,
+      super.settings,
+      this.transitionAnimationController,
+      this.anchorPoint,
+      this.useSafeArea = false,
+      super.filter});
 
   final WidgetBuilder builder;
 
@@ -590,36 +589,27 @@ Future<T?> showModalSideSheet<T>({
   final MaterialLocalizations localizations = MaterialLocalizations.of(context);
   return navigator.push(ModalSideSheetRoute<T>(
     builder: (context) {
-      return Column(
-        children: [
-          Flexible(
-            flex: 0,
-            child: Row(
-              children: [
-                const SizedBox(
-                  height: kToolbarHeight,
-                  width: kToolbarHeight,
-                  child: BackButton(),
-                ),
-                const SizedBox(width: 8,),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                const SizedBox(
+      return SafeArea(
+        child: Column(
+          children: [
+            AppBar(
+              automaticallyImplyLeading: false,
+              title: Text(title),
+              centerTitle: false,
+              actions: const [
+                SizedBox(
                   height: kToolbarHeight,
                   width: kToolbarHeight,
                   child: CloseButton(),
-                ),
+                )
               ],
             ),
-          ),
-          Expanded(
-            child: body,
-          ),
-        ],
+            Expanded(
+              flex: 1,
+              child: body,
+            ),
+          ],
+        ),
       );
     },
     capturedThemes:

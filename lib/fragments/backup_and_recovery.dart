@@ -1,25 +1,21 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/dav_client.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/config.dart';
 import 'package:fl_clash/models/dav.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/widgets/card.dart';
 import 'package:fl_clash/widgets/fade_box.dart';
 import 'package:fl_clash/widgets/list.dart';
-import 'package:fl_clash/widgets/section.dart';
 import 'package:fl_clash/widgets/text.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-class BackupAndRecovery extends StatefulWidget {
+class BackupAndRecovery extends StatelessWidget {
   const BackupAndRecovery({super.key});
-
-  @override
-  State<BackupAndRecovery> createState() => _BackupAndRecoveryState();
-}
-
-class _BackupAndRecoveryState extends State<BackupAndRecovery> {
-  DAVClient? _client;
 
   _showAddWebDAV(DAV? dav) async {
     await globalState.showCommonDialog<String>(
@@ -29,36 +25,102 @@ class _BackupAndRecoveryState extends State<BackupAndRecovery> {
     );
   }
 
-  _backup() async {
+  _backupOnWebDAV(BuildContext context, DAVClient client) async {
     final commonScaffoldState = context.commonScaffoldState;
-    final res = await commonScaffoldState?.loadingRun<bool>(() async {
-      return await _client?.backup();
-    });
-    if(res != true) return;
+    final res = await commonScaffoldState?.loadingRun<bool>(
+      () async {
+        final backupData = await globalState.appController.backupData();
+        return await client.backup(Uint8List.fromList(backupData));
+      },
+      title: appLocalizations.backup,
+    );
+    if (res != true) return;
     globalState.showMessage(
-      title: appLocalizations.recovery,
+      title: appLocalizations.backup,
       message: TextSpan(text: appLocalizations.backupSuccess),
     );
   }
 
-  _recovery(RecoveryOption recoveryOption) async {
+  _recoveryOnWebDAV(
+    BuildContext context,
+    DAVClient client,
+    RecoveryOption recoveryOption,
+  ) async {
     final commonScaffoldState = context.commonScaffoldState;
-    final res = await commonScaffoldState?.loadingRun<bool>(() async {
-      return await _client?.recovery(recoveryOption: recoveryOption);
-    });
-    if(res != true) return;
+    final res = await commonScaffoldState?.loadingRun<bool>(
+      () async {
+        final data = await client.recovery();
+        await globalState.appController.recoveryData(data, recoveryOption);
+        return true;
+      },
+      title: appLocalizations.recovery,
+    );
+    if (res != true) return;
     globalState.showMessage(
       title: appLocalizations.recovery,
       message: TextSpan(text: appLocalizations.recoverySuccess),
     );
   }
 
-  _handleRecovery() async {
+  _handleRecoveryOnWebDAV(BuildContext context, DAVClient client) async {
     final recoveryOption = await globalState.showCommonDialog<RecoveryOption>(
       child: const RecoveryOptionsDialog(),
     );
-    if (recoveryOption == null) return;
-    _recovery(recoveryOption);
+    if (recoveryOption == null || !context.mounted) return;
+    _recoveryOnWebDAV(context, client, recoveryOption);
+  }
+
+  _backupOnLocal(BuildContext context) async {
+    final commonScaffoldState = context.commonScaffoldState;
+    final res = await commonScaffoldState?.loadingRun<bool>(
+      () async {
+        final backupData = await globalState.appController.backupData();
+        await picker.saveFile(
+          other.getBackupFileName(),
+          Uint8List.fromList(backupData),
+        );
+        return true;
+      },
+      title: appLocalizations.backup,
+    );
+    if (res != true) return;
+    globalState.showMessage(
+      title: appLocalizations.backup,
+      message: TextSpan(text: appLocalizations.backupSuccess),
+    );
+  }
+
+  _recoveryOnLocal(
+    BuildContext context,
+    RecoveryOption recoveryOption,
+  ) async {
+    final file = await picker.pickerFile();
+    final data = file?.bytes;
+    if (data == null || !context.mounted) return;
+    final commonScaffoldState = context.commonScaffoldState;
+    final res = await commonScaffoldState?.loadingRun<bool>(
+      () async {
+        await globalState.appController.recoveryData(
+          List<int>.from(data),
+          recoveryOption,
+        );
+        return true;
+      },
+      title: appLocalizations.recovery,
+    );
+    if (res != true) return;
+    globalState.showMessage(
+      title: appLocalizations.recovery,
+      message: TextSpan(text: appLocalizations.recoverySuccess),
+    );
+  }
+
+  _handleRecoveryOnLocal(BuildContext context) async {
+    final recoveryOption = await globalState.showCommonDialog<RecoveryOption>(
+      child: const RecoveryOptionsDialog(),
+    );
+    if (recoveryOption == null || !context.mounted) return;
+    _recoveryOnLocal(context, recoveryOption);
   }
 
   @override
@@ -66,39 +128,26 @@ class _BackupAndRecoveryState extends State<BackupAndRecovery> {
     return Selector<Config, DAV?>(
       selector: (_, config) => config.dav,
       builder: (_, dav, __) {
-        if (dav == null) {
-          return ListView(
-            children: [
-              Section(
-                title: appLocalizations.account,
-                child: Builder(
-                  builder: (_) {
-                    return ListItem(
-                      leading: const Icon(Icons.account_box),
-                      title: Text(appLocalizations.noInfo),
-                      subtitle: Text(appLocalizations.pleaseBindWebDAV),
-                      trailing: FilledButton.tonal(
-                        onPressed: () {
-                          _showAddWebDAV(dav);
-                        },
-                        child: Text(
-                          appLocalizations.bind,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              )
-            ],
-          );
-        }
-        _client = DAVClient(dav);
-        final pingFuture = _client!.pingCompleter.future;
+        final client = dav != null ? DAVClient(dav) : null;
         return ListView(
           children: [
-            Section(
-              title: appLocalizations.account,
-              child: ListItem(
+            ListHeader(title: appLocalizations.remote),
+            if (dav == null)
+              ListItem(
+                leading: const Icon(Icons.account_box),
+                title: Text(appLocalizations.noInfo),
+                subtitle: Text(appLocalizations.pleaseBindWebDAV),
+                trailing: FilledButton.tonal(
+                  onPressed: () {
+                    _showAddWebDAV(dav);
+                  },
+                  child: Text(
+                    appLocalizations.bind,
+                  ),
+                ),
+              )
+            else ...[
+              ListItem(
                 leading: const Icon(Icons.account_box),
                 title: TooltipText(
                   text: Text(
@@ -114,11 +163,10 @@ class _BackupAndRecoveryState extends State<BackupAndRecovery> {
                     children: [
                       Text(appLocalizations.connectivity),
                       FutureBuilder<bool>(
-                        future: pingFuture,
+                        future: client!.pingCompleter.future,
                         builder: (_, snapshot) {
                           return Center(
                             child: FadeBox(
-                              key: const Key("fade_box_1"),
                               child: snapshot.connectionState ==
                                       ConnectionState.waiting
                                   ? const SizedBox(
@@ -154,37 +202,86 @@ class _BackupAndRecoveryState extends State<BackupAndRecovery> {
                   ),
                 ),
               ),
-            ),
-            FutureBuilder<bool>(
-              future: pingFuture,
-              builder: (_, snapshot) {
-                return FadeBox(
-                  key: const Key("fade_box_2"),
-                  child: snapshot.data == true
-                      ? Section(
-                          title: appLocalizations.backupAndRecovery,
-                          child: Column(
-                            children: [
-                              ListItem(
-                                onTab: _backup,
-                                title: Text(appLocalizations.backup),
-                                subtitle: Text(appLocalizations.backupDesc),
-                              ),
-                              ListItem(
-                                onTab: _handleRecovery,
-                                title: Text(appLocalizations.recovery),
-                                subtitle: Text(appLocalizations.recoveryDesc),
-                              ),
-                            ],
-                          ),
-                        )
-                      : Container(),
-                );
+              const SizedBox(
+                height: 4,
+              ),
+              ListItem(
+                onTap: () {
+                  _backupOnWebDAV(context, client);
+                },
+                title: Text(appLocalizations.backup),
+                subtitle: Text(appLocalizations.remoteBackupDesc),
+              ),
+              ListItem(
+                onTap: () {
+                  _handleRecoveryOnWebDAV(context, client);
+                },
+                title: Text(appLocalizations.recovery),
+                subtitle: Text(appLocalizations.remoteRecoveryDesc),
+              ),
+            ],
+            ListHeader(title: appLocalizations.local),
+            ListItem(
+              onTap: () {
+                _backupOnLocal(context);
               },
+              title: Text(appLocalizations.backup),
+              subtitle: Text(appLocalizations.localBackupDesc),
+            ),
+            ListItem(
+              onTap: () {
+                _handleRecoveryOnLocal(context);
+              },
+              title: Text(appLocalizations.recovery),
+              subtitle: Text(appLocalizations.localRecoveryDesc),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class RecoveryOptionsDialog extends StatefulWidget {
+  const RecoveryOptionsDialog({super.key});
+
+  @override
+  State<RecoveryOptionsDialog> createState() => _RecoveryOptionsDialogState();
+}
+
+class _RecoveryOptionsDialogState extends State<RecoveryOptionsDialog> {
+  _handleOnTab(RecoveryOption? value) {
+    if (value == null) return;
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(appLocalizations.recovery),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 16,
+      ),
+      content: SizedBox(
+        width: 250,
+        child: Wrap(
+          children: [
+            ListItem(
+              onTap: () {
+                _handleOnTab(RecoveryOption.onlyProfiles);
+              },
+              title: Text(appLocalizations.recoveryProfiles),
+            ),
+            ListItem(
+              onTap: () {
+                _handleOnTab(RecoveryOption.all);
+              },
+              title: Text(appLocalizations.recoveryAll),
+            )
+          ],
+        ),
+      ),
     );
   }
 }
@@ -228,7 +325,6 @@ class _WebDAVFormDialogState extends State<WebDAVFormDialog> {
     Navigator.pop(context);
   }
 
-
   @override
   void dispose() {
     super.dispose();
@@ -248,7 +344,7 @@ class _WebDAVFormDialogState extends State<WebDAVFormDialog> {
             children: [
               TextFormField(
                 controller: uriController,
-                maxLines: 2,
+                maxLines: 5,
                 minLines: 1,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.link),
@@ -320,50 +416,6 @@ class _WebDAVFormDialogState extends State<WebDAVFormDialog> {
           child: Text(appLocalizations.save),
         )
       ],
-    );
-  }
-}
-
-class RecoveryOptionsDialog extends StatefulWidget {
-  const RecoveryOptionsDialog({super.key});
-
-  @override
-  State<RecoveryOptionsDialog> createState() => _RecoveryOptionsDialogState();
-}
-
-class _RecoveryOptionsDialogState extends State<RecoveryOptionsDialog> {
-  _handleOnTab(RecoveryOption? value) {
-    if (value == null) return;
-    Navigator.of(context).pop(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(appLocalizations.recovery),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 16,
-      ),
-      content: SizedBox(
-        width: 250,
-        child: Wrap(
-          children: [
-            ListItem(
-              onTab: () {
-                _handleOnTab(RecoveryOption.onlyProfiles);
-              },
-              title: Text(appLocalizations.recoveryProfiles),
-            ),
-            ListItem(
-              onTab: () {
-                _handleOnTab(RecoveryOption.all);
-              },
-              title: Text(appLocalizations.recoveryAll),
-            )
-          ],
-        ),
-      ),
     );
   }
 }

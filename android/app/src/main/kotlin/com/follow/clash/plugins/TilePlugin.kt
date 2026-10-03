@@ -1,37 +1,33 @@
 package com.follow.clash.plugins
 
+import com.follow.clash.common.Components
+import com.follow.clash.invokeMethodOnMainThread
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-class TilePlugin(private val onStart: (() -> Unit)? = null, private val onStop: (() -> Unit)? = null) : FlutterPlugin,
-    MethodChannel.MethodCallHandler {
-
+class TilePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
+
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        channel = MethodChannel(flutterPluginBinding.binaryMessenger, "tile")
+        channel =
+            MethodChannel(flutterPluginBinding.binaryMessenger, "${Components.PACKAGE_NAME}/tile")
         channel.setMethodCallHandler(this)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        handleDetached()
         channel.setMethodCallHandler(null)
     }
 
     fun handleStart() {
-        onStart?.let { it() }
-        channel.invokeMethod("start", null)
+        channel.invokeMethodOnMainThread("start")
     }
 
     fun handleStop() {
-        channel.invokeMethod("stop", null)
-        onStop?.let { it() }
+        channel.invokeMethodOnMainThread("stop")
     }
 
-    private fun handleDetached() {
-        channel.invokeMethod("detached", null)
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        result.notImplemented()
     }
-
-
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {}
 }

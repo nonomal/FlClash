@@ -1,278 +1,107 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
-import 'package:animations/animations.dart';
-import 'package:fl_clash/clash/clash.dart';
-import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/widgets/scaffold.dart';
-import 'package:flutter/material.dart';
-
-import 'controller.dart';
-import 'models/models.dart';
 import 'common/common.dart';
+import 'enum/enum.dart';
+import 'models/models.dart';
+
+import 'package:fl_clash/common/theme.dart';
+import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart';
+import 'package:flutter/foundation.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class GlobalState {
-  Timer? timer;
-  Timer? groupsUpdateTimer;
+  static GlobalState? _instance;
+  GlobalKey<NavigatorState> get navigatorKey => rootNavigatorKey;
+  late final String appEnv;
+  late final PackageInfo packageInfo;
   Function? updateCurrentDelayDebounce;
-  PageController? pageController;
-  final navigatorKey = GlobalKey<NavigatorState>();
-  late AppController appController;
-  GlobalKey<CommonScaffoldState> homeScaffoldKey = GlobalKey();
-  List<Function> updateFunctionLists = [];
+  late Measure measure;
+  late CommonTheme theme;
+  late ProviderContainer container;
+  bool needInitStatus = true;
 
-  startListenUpdate() {
-    if (timer != null && timer!.isActive == true) return;
-    timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      for (final function in updateFunctionLists) {
-        function();
-      }
-    });
+  bool get isPre => appEnv != 'stable';
+
+  bool get canCrashCore => canCrashCoreFor(isDebug: kDebugMode, appEnv: appEnv);
+
+  @visibleForTesting
+  static bool canCrashCoreFor({required bool isDebug, required String appEnv}) {
+    return isDebug || appEnv == 'dev';
   }
 
-  stopListenUpdate() {
-    if (timer == null || timer?.isActive == false) return;
-    timer?.cancel();
+  String? lastConfigMd5;
+  VpnState? lastVpnState;
+  bool isAttach = false;
+
+  GlobalState._internal();
+
+  factory GlobalState() {
+    _instance ??= GlobalState._internal();
+    return _instance!;
   }
 
-  Future<void> updateClashConfig({
-    required ClashConfig clashConfig,
-    required Config config,
-    bool isPatch = true,
+  String get ua => container
+      .read(patchClashConfigProvider.select((state) => state.globalUa))
+      .takeFirstValid([packageInfo.ua]);
+
+  Future<T?> loadingRun<T>(
+    FutureOr<T> Function() futureFunction, {
+    String? title,
+    required LoadingTag? tag,
+    bool silence = false,
   }) async {
-    final profilePath = await appPath.getProfilePath(config.currentProfileId);
-    await config.currentProfile?.checkAndUpdate();
-    debugPrint("update config");
-    final res = await clashCore.updateConfig(UpdateConfigParams(
-      profilePath: profilePath,
-      config: clashConfig,
-      isPatch: isPatch,
-      isCompatible: config.isCompatible,
-    ));
-    if (res.isNotEmpty) throw res;
-  }
-
-  updateCoreVersionInfo(AppState appState) {
-    appState.versionInfo = clashCore.getVersionInfo();
-  }
-
-  Future<void> startSystemProxy({
-    required AppState appState,
-    required Config config,
-    required ClashConfig clashConfig,
-  }) async {
-    final args = config.isAccessControl
-        ? json.encode(
-            Props(
-              accessControl: config.accessControl,
-              allowBypass: config.allowBypass,
-            ),
-          )
-        : null;
-    await proxyManager.startProxy(
-      port: clashConfig.mixedPort,
-      args: args,
+    return globalState.safeRun(
+      futureFunction,
+      silence: silence,
+      title: title,
+      onStart: () {
+        if (tag != null) {
+          container.read(loadingProvider(tag).notifier).start();
+        }
+      },
+      onEnd: () {
+        if (tag != null) {
+          container.read(loadingProvider(tag).notifier).stop();
+        }
+      },
     );
-    startListenUpdate();
-    applyProfile(
-      appState: appState,
-      config: config,
-      clashConfig: clashConfig,
-    );
-  }
-
-  Future<void> stopSystemProxy() async {
-    await proxyManager.stopProxy();
-    stopListenUpdate();
-  }
-
-  Future<void> applyProfile({
-    required AppState appState,
-    required Config config,
-    required ClashConfig clashConfig,
-  }) async {
-    await updateClashConfig(
-      clashConfig: clashConfig,
-      config: config,
-      isPatch: false,
-    );
-    await updateGroups(appState);
-    changeProxy(
-      appState: appState,
-      config: config,
-      clashConfig: clashConfig,
-    );
-  }
-
-  init({
-    required AppState appState,
-    required Config config,
-    required ClashConfig clashConfig,
-  }) async {
-    appState.isInit = clashCore.isInit;
-    if (!appState.isInit) {
-      appState.isInit = await clashService.init(
-        config: config,
-        clashConfig: clashConfig,
-      );
-    }
-    updateCoreVersionInfo(appState);
-  }
-
-  changeProxy({
-    required AppState appState,
-    required Config config,
-    required ClashConfig clashConfig,
-  }) {
-    if (config.profiles.isEmpty) {
-      stopSystemProxy();
-      return;
-    }
-    config.currentSelectedMap.forEach((key, value) {
-      clashCore.changeProxy(
-        ChangeProxyParams(
-          groupName: key,
-          proxyName: value,
-        ),
-      );
-    });
-  }
-
-  Future<void> updateGroups(AppState appState) async {
-    appState.groups = await clashCore.getProxiesGroups();
-  }
-
-  showMessage({
-    required String title,
-    required InlineSpan message,
-    Function()? onTab,
-    String? confirmText,
-  }) {
-    showCommonDialog(
-      child: Builder(
-        builder: (context) {
-          return AlertDialog(
-            title: Text(title),
-            content: Container(
-              width: 300,
-              constraints: const BoxConstraints(maxHeight: 200),
-              child: SingleChildScrollView(
-                child: RichText(
-                  overflow: TextOverflow.visible,
-                  text: TextSpan(
-                    style: Theme.of(context).textTheme.labelLarge,
-                    children: [message],
-                  ),
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: onTab ??
-                    () {
-                      Navigator.of(context).pop();
-                    },
-                child: Text(confirmText ?? appLocalizations.confirm),
-              )
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<T?> showCommonDialog<T>({
-    required Widget child,
-  }) async {
-    return await showModal<T>(
-      context: navigatorKey.currentState!.context,
-      configuration: const FadeScaleTransitionConfiguration(
-        barrierColor: Colors.black38,
-      ),
-      builder: (_) => child,
-      filter: filter,
-    );
-  }
-
-  updateTraffic({
-    AppState? appState,
-    required Config config,
-  }) {
-    final traffic = clashCore.getTraffic();
-    if (appState != null) {
-      appState.addTraffic(traffic);
-      appState.totalTraffic = clashCore.getTotalTraffic();
-    }
-    if (Platform.isAndroid) {
-      final currentProfile = config.currentProfile;
-      if (currentProfile == null) return;
-      proxyManager.startForeground(
-        title: currentProfile.label ?? currentProfile.id,
-        content: "$traffic",
-      );
-    }
-  }
-
-  showSnackBar(
-    BuildContext context, {
-    required String message,
-    SnackBarAction? action,
-  }) {
-    // final width = context.width;
-    // EdgeInsets margin;
-    // if (width < 600) {
-    //   margin = const EdgeInsets.only(
-    //     bottom: 96,
-    //     right: 16,
-    //     left: 16,
-    //   );
-    // } else {
-    //   margin = EdgeInsets.only(
-    //     bottom: 16,
-    //     left: 16,
-    //     right: width - 316,
-    //   );
-    // }
-    // ScaffoldMessenger.of(context).showSnackBar(
-    //   SnackBar(
-    //     action: action,
-    //     content: Text(message),
-    //     behavior: SnackBarBehavior.floating,
-    //     duration: const Duration(milliseconds: 1500),
-    //     margin: margin,
-    //   ),
-    // );
   }
 
   Future<T?> safeRun<T>(
     FutureOr<T> Function() futureFunction, {
     String? title,
+    VoidCallback? onStart,
+    VoidCallback? onEnd,
+    bool silence = true,
   }) async {
     try {
-      final res = await futureFunction();
-      return res;
-    } catch (e) {
-      showMessage(
-        title: title ?? appLocalizations.tip,
-        message: TextSpan(
-          text: e.toString(),
-        ),
+      onStart?.call();
+      return await futureFunction();
+    } catch (e, s) {
+      commonPrint.log(
+        title == null
+            ? '${compactError(e)}, $s'
+            : '$title ===> ${compactError(e)}, $s',
+        logLevel: LogLevel.warning,
       );
+      final message = userFacingErrorMessage(e, currentAppLocalizations);
+      if (silence) {
+        dialogs.showNotifier(message, level: MessageLevel.error);
+      } else {
+        unawaited(
+          dialogs.showMessage(
+            title: title ?? currentAppLocalizations.tip,
+            message: TextSpan(text: message),
+          ),
+        );
+      }
       return null;
+    } finally {
+      onEnd?.call();
     }
-  }
-
-  int getColumns(ViewMode viewMode,int currentColumns){
-    final targetColumnsArray = switch (viewMode) {
-      ViewMode.mobile => [2, 1],
-      ViewMode.laptop => [3, 2],
-      ViewMode.desktop => [4, 3],
-    };
-    if (targetColumnsArray.contains(currentColumns)) {
-      return currentColumns;
-    }
-    return targetColumnsArray.first;
   }
 }
 

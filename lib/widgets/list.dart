@@ -1,68 +1,102 @@
+import 'package:collection/collection.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/widgets/open_container.dart';
-import 'package:flutter/material.dart';
+import 'package:fl_clash/widgets/inherited.dart';
+import 'package:material_ui/material_ui.dart';
 
-import 'extend_page.dart';
+import 'card.dart';
+import 'input.dart';
+import 'open_container.dart';
 import 'scaffold.dart';
+import 'sheet.dart';
 
-class Delegate {
-  const Delegate();
+part 'list_selected.dart';
+
+sealed class _ListItemAction {
+  const _ListItemAction();
 }
 
-class RadioDelegate<T> extends Delegate {
+final class _DefaultAction extends _ListItemAction {
+  const _DefaultAction();
+}
+
+final class _RadioAction<T> extends _ListItemAction {
   final T value;
-  final T groupValue;
-  final void Function(T?)? onChanged;
+  final VoidCallback? onTap;
 
-  const RadioDelegate({
-    required this.value,
-    required this.groupValue,
-    this.onChanged,
-  });
+  const _RadioAction({required this.value, this.onTap});
 }
 
-class SwitchDelegate<T> extends Delegate {
+final class _ToggleAction extends _ListItemAction {
   final bool value;
   final ValueChanged<bool>? onChanged;
 
-  const SwitchDelegate({
-    required this.value,
-    this.onChanged,
-  });
+  const _ToggleAction({required this.value, this.onChanged});
 }
 
-class CheckboxDelegate<T> extends Delegate {
+final class _CheckboxAction extends _ListItemAction {
   final bool value;
   final ValueChanged<bool?>? onChanged;
 
-  const CheckboxDelegate({
-    this.value = false,
+  const _CheckboxAction({required this.value, this.onChanged});
+}
+
+final class _OpenAction extends _ListItemAction {
+  final Widget widget;
+  final ValueChanged<dynamic>? onChanged;
+
+  final bool forceFull;
+
+  const _OpenAction({
+    required this.widget,
     this.onChanged,
+    required this.forceFull,
   });
 }
 
-class OpenDelegate extends Delegate {
+final class _NextAction extends _ListItemAction {
   final Widget widget;
-  final String title;
-  final double? extendPageWidth;
+  final double? maxWidth;
 
-  const OpenDelegate({
+  const _NextAction({required this.widget, this.maxWidth});
+}
+
+final class _OptionsAction<T> extends _ListItemAction {
+  final List<T> options;
+  final String title;
+  final T value;
+  final String Function(T value) textBuilder;
+  final ValueChanged<T?> onChanged;
+
+  const _OptionsAction({
     required this.title,
-    required this.widget,
-    this.extendPageWidth,
+    required this.options,
+    required this.textBuilder,
+    required this.value,
+    required this.onChanged,
   });
 }
 
-class NextDelegate extends Delegate {
-  final Widget widget;
+final class _InputAction extends _ListItemAction {
   final String title;
-  final double? extendPageWidth;
+  final String value;
+  final String? suffixText;
+  final ValueChanged<String?> onChanged;
+  final FormFieldValidator<String>? validator;
+  final int? maxLength;
+  final TextInputType? keyboardType;
+  final String? resetValue;
 
-  const NextDelegate({
+  const _InputAction({
     required this.title,
-    required this.widget,
-    this.extendPageWidth,
+    required this.value,
+    this.suffixText,
+    required this.onChanged,
+    this.resetValue,
+    this.validator,
+    this.maxLength,
+    this.keyboardType,
   });
 }
 
@@ -72,11 +106,17 @@ class ListItem<T> extends StatelessWidget {
   final Widget? subtitle;
   final EdgeInsets padding;
   final ListTileTitleAlignment tileTitleAlignment;
-  final bool? prue;
+  final bool? dense;
   final Widget? trailing;
-  final Delegate delegate;
+  final _ListItemAction _action;
   final double? horizontalTitleGap;
-  final void Function()? onTab;
+  final TextStyle? titleTextStyle;
+  final TextStyle? subtitleTextStyle;
+  final double minVerticalPadding;
+  final Color? color;
+  final double? minTileHeight;
+  final VisualDensity? visualDensity;
+  final void Function()? onTap;
 
   const ListItem({
     super.key,
@@ -86,122 +126,229 @@ class ListItem<T> extends StatelessWidget {
     this.padding = const EdgeInsets.symmetric(horizontal: 16),
     this.trailing,
     this.horizontalTitleGap,
-    this.prue,
-    this.onTab,
+    this.dense,
+    this.onTap,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  }) : delegate = const Delegate();
+  }) : _action = const _DefaultAction();
 
-  const ListItem.open({
+  ListItem.open({
     super.key,
     required this.title,
     this.subtitle,
     this.leading,
     this.padding = const EdgeInsets.symmetric(horizontal: 16),
     this.trailing,
-    required OpenDelegate this.delegate,
+    required Widget widget,
+    ValueChanged<dynamic>? onChanged,
+    bool forceFull = true,
     this.horizontalTitleGap,
-    this.prue,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  }) : onTab = null;
+  }) : _action = _OpenAction(
+         widget: widget,
+         onChanged: onChanged,
+         forceFull: forceFull,
+       ),
+       onTap = null;
 
-  const ListItem.next({
+  ListItem.next({
     super.key,
     required this.title,
     this.subtitle,
     this.leading,
     this.padding = const EdgeInsets.symmetric(horizontal: 16),
     this.trailing,
-    required NextDelegate this.delegate,
+    required Widget widget,
+    double? maxWidth,
     this.horizontalTitleGap,
-    this.prue,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  }) : onTab = null;
+  }) : _action = _NextAction(widget: widget, maxWidth: maxWidth),
+       onTap = null;
 
-  const ListItem.checkbox({
+  ListItem.options({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.padding = const EdgeInsets.symmetric(horizontal: 16),
+    this.trailing,
+    required String dialogTitle,
+    required List<T> options,
+    required T value,
+    required String Function(T value) textBuilder,
+    required ValueChanged<T?> onChanged,
+    this.horizontalTitleGap,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
+    this.tileTitleAlignment = ListTileTitleAlignment.center,
+  }) : _action = _OptionsAction<T>(
+         title: dialogTitle,
+         options: options,
+         value: value,
+         textBuilder: textBuilder,
+         onChanged: onChanged,
+       ),
+       onTap = null;
+
+  ListItem.input({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.padding = const EdgeInsets.symmetric(horizontal: 16),
+    this.trailing,
+    required String dialogTitle,
+    required String value,
+    String? suffixText,
+    required ValueChanged<String?> onChanged,
+    FormFieldValidator<String>? validator,
+    int? maxLength,
+    TextInputType? keyboardType,
+    String? resetValue,
+    this.horizontalTitleGap,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
+    this.tileTitleAlignment = ListTileTitleAlignment.center,
+  }) : _action = _InputAction(
+         title: dialogTitle,
+         value: value,
+         suffixText: suffixText,
+         onChanged: onChanged,
+         validator: validator,
+         maxLength: maxLength,
+         keyboardType: keyboardType,
+         resetValue: resetValue,
+       ),
+       onTap = null;
+
+  ListItem.checkbox({
     super.key,
     required this.title,
     this.subtitle,
     this.leading,
     this.padding = const EdgeInsets.only(left: 16, right: 8),
-    required CheckboxDelegate this.delegate,
+    bool value = false,
+    ValueChanged<bool?>? onChanged,
     this.horizontalTitleGap,
-    this.prue,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  })  : trailing = null,
-        onTab = null;
+  }) : _action = _CheckboxAction(value: value, onChanged: onChanged),
+       trailing = null,
+       onTap = null;
 
-  const ListItem.switchItem({
+  ListItem.toggle({
     super.key,
     required this.title,
     this.subtitle,
     this.leading,
     this.padding = const EdgeInsets.only(left: 16, right: 8),
-    required SwitchDelegate this.delegate,
+    required bool value,
+    ValueChanged<bool>? onChanged,
     this.horizontalTitleGap,
-    this.prue,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  })  : trailing = null,
-        onTab = null;
+  }) : _action = _ToggleAction(value: value, onChanged: onChanged),
+       trailing = null,
+       onTap = null;
 
-  const ListItem.radio({
+  ListItem.radio({
     super.key,
     required this.title,
     this.subtitle,
     this.trailing,
     this.padding = const EdgeInsets.only(left: 12, right: 16),
-    required RadioDelegate<T> this.delegate,
+    required T value,
+    VoidCallback? onTap,
     this.horizontalTitleGap = 8,
-    this.prue,
+    this.dense,
+    this.titleTextStyle,
+    this.subtitleTextStyle,
+    this.color,
+    this.minTileHeight,
+    this.visualDensity,
+    this.minVerticalPadding = 12,
     this.tileTitleAlignment = ListTileTitleAlignment.center,
-  })  : leading = null,
-        onTab = null;
+  }) : _action = _RadioAction<T>(value: value, onTap: onTap),
+       leading = null,
+       onTap = null;
 
-  _buildListTile({
-    void Function()? onTab,
+  Widget _buildListTile({
+    required ItemPosition? position,
+    void Function()? onTap,
     Widget? trailing,
     Widget? leading,
   }) {
-    if (prue == true) {
-      final List<Widget> children = [];
-      if (leading != null) {
-        children.add(leading);
-        children.add(
-          SizedBox(
-            width: horizontalTitleGap,
-          ),
-        );
-      }
-      children.add(
-        Expanded(
-          child: title,
-        ),
-      );
-      if (trailing != null) {
-        children.add(
-          SizedBox(
-            width: horizontalTitleGap,
-          ),
-        );
-        children.add(trailing);
-      }
-      return InkWell(
-        splashFactory: NoSplash.splashFactory,
-        onTap: onTab,
-        child: Container(
-          padding: padding,
-          child: Row(
-            children: children,
-          ),
+    if (position != null) {
+      // OpenContainer reparents the closed tile out of the section's provider.
+      return ItemPositionProvider(
+        position: position,
+        child: DecorationListItem(
+          leading: leading ?? this.leading,
+          title: title,
+          subtitle: subtitle,
+          trailing: trailing ?? this.trailing,
+          contentPadding: padding,
+          horizontalTitleGap: horizontalTitleGap,
+          onPressed: onTap,
         ),
       );
     }
     return ListTile(
+      key: key,
+      dense: dense,
+      visualDensity: visualDensity,
+      tileColor: color,
+      titleTextStyle: titleTextStyle,
+      subtitleTextStyle: subtitleTextStyle,
       leading: leading ?? this.leading,
       horizontalTitleGap: horizontalTitleGap,
       title: title,
+      minTileHeight: minTileHeight,
+      minVerticalPadding: minVerticalPadding,
       subtitle: subtitle,
       titleAlignment: tileTitleAlignment,
-      onTap: onTab,
+      onTap: onTap,
       trailing: trailing ?? this.trailing,
       contentPadding: padding,
     );
@@ -209,113 +356,261 @@ class ListItem<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (delegate is OpenDelegate) {
-      final openDelegate = delegate as OpenDelegate;
-      return OpenContainer(
-        closedBuilder: (_, action) {
-          openAction() {
-            final isMobile = globalState.appController.appState.viewMode == ViewMode.mobile;
-            if (!isMobile) {
-              showExtendPage(
+    final position = ItemPositionProvider.of(context)?.position;
+    switch (_action) {
+      case final _OpenAction openDelegate:
+        final child = openDelegate.widget;
+        final onChanged = openDelegate.onChanged;
+        if (!context.isMobileView) {
+          return _buildListTile(
+            position: position,
+            onTap: () async {
+              final result = await showExtend<dynamic>(
                 context,
-                body: openDelegate.widget,
-                title: openDelegate.title,
-                extendPageWidth: openDelegate.extendPageWidth,
+                props: ExtendProps(forceFull: openDelegate.forceFull),
+                builder: (_) => child,
               );
+              onChanged?.call(result);
+            },
+          );
+        }
+        return OpenContainer<dynamic>(
+          closedBuilder: (context, action) {
+            return _buildListTile(position: position, onTap: action);
+          },
+          onClosed: onChanged,
+          openBuilder: (_, action) {
+            return child;
+          },
+        );
+      case final _NextAction nextDelegate:
+        final child = nextDelegate.widget;
+
+        return _buildListTile(
+          position: position,
+          onTap: () {
+            showExtend(
+              context,
+              props: ExtendProps(maxWidth: nextDelegate.maxWidth),
+              builder: (_) {
+                return child;
+              },
+            );
+          },
+        );
+      case final _OptionsAction options:
+        final optionsDelegate = options as _OptionsAction<T>;
+        return _buildListTile(
+          position: position,
+          onTap: () async {
+            // Options are boxed so that a nullable option such as the default
+            // locale stays distinct from the null a dismissed dialog returns.
+            final selected = await dialogs.showCommonDialog<(T,)>(
+              child: OptionsDialog<(T,)>(
+                title: optionsDelegate.title,
+                options: [
+                  for (final option in optionsDelegate.options) (option,),
+                ],
+                textBuilder: (option) => optionsDelegate.textBuilder(option.$1),
+                value: (optionsDelegate.value,),
+              ),
+            );
+            if (selected == null) {
               return;
             }
-            action();
-          }
-
-          return _buildListTile(onTab: openAction);
-        },
-        openBuilder: (_, action) {
-          return CommonScaffold.open(
-            key: Key(openDelegate.title),
-            onBack: action,
-            title: openDelegate.title,
-            body: openDelegate.widget,
-          );
-        },
-      );
-    }
-    if (delegate is NextDelegate) {
-      final nextDelegate = delegate as NextDelegate;
-      return _buildListTile(
-        onTab: () {
-          final isMobile = globalState.appController.appState.viewMode == ViewMode.mobile;
-          if (!isMobile) {
-            showExtendPage(
-              context,
-              body: nextDelegate.widget,
-              title: nextDelegate.title,
-              extendPageWidth: nextDelegate.extendPageWidth,
-            );
-            return;
-          }
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => CommonScaffold(
-                key: Key(nextDelegate.title),
-                body: nextDelegate.widget,
-                title: nextDelegate.title,
+            optionsDelegate.onChanged(selected.$1);
+          },
+        );
+      case final _InputAction inputDelegate:
+        return _buildListTile(
+          position: position,
+          onTap: () async {
+            final value = await dialogs.showCommonDialog<String>(
+              child: InputDialog(
+                title: inputDelegate.title,
+                value: inputDelegate.value,
+                suffixText: inputDelegate.suffixText,
+                resetValue: inputDelegate.resetValue,
+                inputFormatters: inputDelegate.maxLength == null
+                    ? null
+                    : TextInputLimits.limit(inputDelegate.maxLength!),
+                keyboardType: inputDelegate.keyboardType,
+                validator: inputDelegate.validator,
               ),
-            ),
-          );
-        },
-      );
-    }
-    if (delegate is CheckboxDelegate) {
-      final checkboxDelegate = delegate as CheckboxDelegate;
-      return _buildListTile(
-        onTab: () {
-          if (checkboxDelegate.onChanged != null) {
-            checkboxDelegate.onChanged!(!checkboxDelegate.value);
-          }
-        },
-        trailing: Checkbox(
-          value: checkboxDelegate.value,
-          onChanged: checkboxDelegate.onChanged,
-        ),
-      );
-    }
-    if (delegate is SwitchDelegate) {
-      final switchDelegate = delegate as SwitchDelegate;
-      return _buildListTile(
-        onTab: () {
-          if (switchDelegate.onChanged != null) {
-            switchDelegate.onChanged!(!switchDelegate.value);
-          }
-        },
-        trailing: Switch(
-          value: switchDelegate.value,
-          onChanged: switchDelegate.onChanged,
-        ),
-      );
-    }
-    if (delegate is RadioDelegate) {
-      final radioDelegate = delegate as RadioDelegate<T>;
-      return _buildListTile(
-        onTab: () {
-          if (radioDelegate.onChanged != null) {
-            radioDelegate.onChanged!(radioDelegate.value);
-          }
-        },
-        leading: SizedBox(
-          width: 32,
-          height: 32,
-          child: Radio<T>(
-            value: radioDelegate.value,
-            groupValue: radioDelegate.groupValue,
-            onChanged: radioDelegate.onChanged,
+            );
+            inputDelegate.onChanged(value);
+          },
+        );
+      case final _CheckboxAction checkboxDelegate:
+        return _buildListTile(
+          position: position,
+          onTap: checkboxDelegate.onChanged == null
+              ? null
+              : () {
+                  checkboxDelegate.onChanged!(!checkboxDelegate.value);
+                },
+          trailing: CommonCheckBox(
+            value: checkboxDelegate.value,
+            onChanged: checkboxDelegate.onChanged,
           ),
-        ),
-        trailing: trailing,
-      );
+        );
+      case final _ToggleAction toggleAction:
+        return _buildListTile(
+          position: position,
+          onTap: toggleAction.onChanged == null
+              ? null
+              : () {
+                  toggleAction.onChanged!(!toggleAction.value);
+                },
+          trailing: Switch(
+            value: toggleAction.value,
+            onChanged: toggleAction.onChanged,
+          ),
+        );
+      case final _RadioAction radio:
+        final radioDelegate = radio as _RadioAction<T>;
+        return _buildListTile(
+          position: position,
+          onTap: radioDelegate.onTap,
+          leading: ExcludeFocus(
+            child: Radio<T>(
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              value: radioDelegate.value,
+              toggleable: true,
+            ),
+          ),
+          trailing: trailing,
+        );
+      case _DefaultAction():
+        return _buildListTile(position: position, onTap: onTap);
     }
+  }
+}
 
-    return _buildListTile(
-      onTab: onTab,
+class ListHeader extends StatelessWidget {
+  final String title;
+  final String? subTitle;
+  final List<Widget> actions;
+  final EdgeInsets? padding;
+  final double? space;
+
+  const ListHeader({
+    super.key,
+    required this.title,
+    this.subTitle,
+    this.padding,
+    List<Widget>? actions,
+    this.space,
+  }) : actions = actions ?? const [];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: padding ?? listHeaderPadding,
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        spacing: actions.isEmpty ? 0 : 12,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.textTheme.labelLarge?.copyWith(
+                    color: context.colorScheme.onSurfaceVariant.opacity80,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (subTitle != null)
+                  Text(
+                    subTitle!,
+                    style: context.textTheme.bodySmall?.copyWith(
+                      color: context.colorScheme.outline,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.end,
+            spacing: space ?? appBarActionSpace,
+            children: [...actions],
+          ),
+        ],
+      ),
     );
   }
+}
+
+List<Widget> generateSection({
+  String? title,
+  required Iterable<Widget> items,
+  List<Widget>? actions,
+  bool isFirst = false,
+  bool separated = true,
+}) {
+  final genItems = separated
+      ? items.separated(const Divider(height: 0))
+      : items;
+  return [
+    if (items.isNotEmpty && title != null)
+      ListHeader(
+        title: title,
+        actions: actions,
+        padding: isFirst
+            ? listHeaderPadding.copyWith(top: 8.ap)
+            : listHeaderPadding,
+      ),
+    ...genItems,
+  ];
+}
+
+Widget generateSectionV3({
+  String? title,
+  required Iterable<Widget> items,
+  List<Widget>? actions,
+}) {
+  final genItems = items.mapIndexed<Widget>(
+    (index, item) => ItemPositionProvider(
+      position: ItemPosition.get(index, items.length),
+      child: item,
+    ),
+  );
+  return Column(
+    children: [
+      if (items.isNotEmpty && title != null)
+        ListHeader(title: title, actions: actions),
+      Column(children: [...genItems]),
+    ],
+  );
+}
+
+List<Widget> generateInfoSection({
+  required Info info,
+  required Iterable<Widget> items,
+  List<Widget>? actions,
+  bool separated = true,
+}) {
+  final genItems = separated
+      ? items.separated(const Divider(height: 0))
+      : items;
+  return [
+    if (items.isNotEmpty) InfoHeader(info: info, actions: actions),
+    ...genItems,
+  ];
+}
+
+Widget generateListView(List<Widget> items, {double topPadding = 0}) {
+  return ListView.builder(
+    itemCount: items.length,
+    itemBuilder: (_, index) => items[index],
+    padding: EdgeInsets.only(top: topPadding, bottom: 16),
+  );
 }

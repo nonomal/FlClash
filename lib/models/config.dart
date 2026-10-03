@@ -1,465 +1,374 @@
-import 'dart:io';
-
-import 'package:collection/collection.dart';
-import 'package:flutter/material.dart';
+import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/enum/enum.dart';
+import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
-import '../enum/enum.dart';
-import '../common/common.dart';
 import 'models.dart';
 
+part 'generated/config.freezed.dart';
 part 'generated/config.g.dart';
 
-part 'generated/config.freezed.dart';
+const defaultBypassDomain = [
+  '*zhihu.com',
+  '*zhimg.com',
+  '*jd.com',
+  '100ime-iat-api.xfyun.cn',
+  '*360buyimg.com',
+  'localhost',
+  '*.local',
+  '127.*',
+  '10.*',
+  '172.16.*',
+  '172.17.*',
+  '172.18.*',
+  '172.19.*',
+  '172.2*',
+  '172.30.*',
+  '172.31.*',
+  '192.168.*',
+];
+
+const defaultUserAgents = ['clash-verge/v2.4.2', 'ClashforWindows/0.19.23'];
+
+const defaultAppSettingProps = AppSettingProps();
+const defaultVpnProps = VpnProps();
+const defaultAuthenticationProps = AuthenticationProps();
+const defaultNetworkProps = NetworkProps();
+const defaultProxiesStyleProps = ProxiesStyleProps();
+const defaultWindowProps = WindowProps();
+const defaultAccessControlProps = AccessControlProps();
+const defaultThemeProps = ThemeProps(primaryColor: defaultPrimaryColor);
+
+HotKeyAction _defaultHotKeyAction(HotAction action, PhysicalKeyboardKey key) {
+  return HotKeyAction(
+    action: action,
+    key: key.usbHidUsage,
+    modifiers: const {KeyboardModifier.control, KeyboardModifier.alt},
+  );
+}
+
+// Windows reports AltGr as Ctrl+Alt, and every letter is an AltGr character
+// on some layout (@ on German Q, ś on Polish S), so a default there would fire
+// while the user types.
+final List<HotKeyAction> defaultHotKeyActions = system.isWindows
+    ? const []
+    : [
+        _defaultHotKeyAction(HotAction.view, PhysicalKeyboardKey.keyV),
+        _defaultHotKeyAction(HotAction.start, PhysicalKeyboardKey.keyS),
+        _defaultHotKeyAction(HotAction.mode, PhysicalKeyboardKey.keyM),
+        _defaultHotKeyAction(HotAction.proxy, PhysicalKeyboardKey.keyP),
+        _defaultHotKeyAction(HotAction.delayTest, PhysicalKeyboardKey.keyD),
+      ];
+
+const List<DashboardWidget> defaultDashboardWidgets = [
+  DashboardWidget.networkSpeed,
+  DashboardWidget.systemProxyButton,
+  DashboardWidget.tunButton,
+  DashboardWidget.outboundMode,
+  DashboardWidget.networkDetection,
+  DashboardWidget.trafficUsage,
+  DashboardWidget.intranetIp,
+];
+
+const _legacyOutboundModeV2 = 'outboundModeV2';
+
+List<DashboardWidget> dashboardWidgetsSafeFormJson(
+  List<dynamic>? dashboardWidgets,
+) {
+  return decodeOrRestoreDefault(
+    'dashboard widgets',
+    () =>
+        dashboardWidgets
+            ?.map(
+              (e) => e == _legacyOutboundModeV2
+                  ? DashboardWidget.outboundMode
+                  : $enumDecode(_$DashboardWidgetEnumMap, e),
+            )
+            .toSet()
+            .toList() ??
+        defaultDashboardWidgets,
+    () => defaultDashboardWidgets,
+  );
+}
+
+Object? _readSidebarExpanded(Map<dynamic, dynamic> json, String key) {
+  return json.containsKey(key) ? json[key] : json['showLabel'];
+}
+
+Object? _readTabAnimation(Map<dynamic, dynamic> json, String key) {
+  if (json.containsKey(key)) {
+    return json[key];
+  }
+  return json['isAnimateToPage'] == false ? TabAnimation.fade.name : null;
+}
+
+Object? _readUserAgents(Map<dynamic, dynamic> json, String key) {
+  if (json.containsKey(key)) {
+    return json[key];
+  }
+  final legacy = json['customUserAgent'];
+  if (legacy is! String) {
+    return null;
+  }
+  final custom = legacy.trim();
+  if (custom.isEmpty || defaultUserAgents.contains(custom)) {
+    return null;
+  }
+  return [...defaultUserAgents, custom];
+}
 
 @freezed
-class AccessControl with _$AccessControl {
-  const factory AccessControl({
+abstract class AppSettingProps with _$AppSettingProps {
+  const factory AppSettingProps({
+    String? locale,
+    @Default(defaultDashboardWidgets)
+    @JsonKey(fromJson: dashboardWidgetsSafeFormJson)
+    List<DashboardWidget> dashboardWidgets,
+    @Default(false) bool onlyStatisticsProxy,
+    @Default(true) bool showNotificationStopAction,
+    @Default(false) bool autoLaunch,
+    @Default(false) bool silentLaunch,
+    @Default(false) bool autoRun,
+    @Default(false) bool openLogs,
+    @Default(true) bool closeConnections,
+    @Default(defaultTestUrl) String testUrl,
+    @Default(TabAnimation.slide)
+    @JsonKey(readValue: _readTabAnimation)
+    TabAnimation tabAnimation,
+    @Default(true) bool floatingNavigationBar,
+    @Default(true) bool autoCheckUpdate,
+    @Default(true)
+    @JsonKey(readValue: _readSidebarExpanded)
+    bool sidebarExpanded,
+    @Default(false) bool disclaimerAccepted,
+    @Default(false) bool crashlyticsTip,
+    @Default(false) bool crashlytics,
+    @Default(true) bool minimizeOnExit,
+    @Default(false) bool hidden,
+    @Default(false) bool developerMode,
+    @Default(RestoreStrategy.compatible) RestoreStrategy restoreStrategy,
+    @Default(true) bool showTrayTitle,
+    @Default(true) bool checkCertificate,
+    @Default(defaultUserAgents)
+    @JsonKey(readValue: _readUserAgents)
+    List<String> userAgents,
+    @Default(false) bool hideIp,
+    @Default(false) bool editorLineWrap,
+    @Default(EditorFontSize.standard) EditorFontSize editorFontSize,
+    @Default([]) List<String> serviceOrder,
+    @Default([]) List<String> disabledServices,
+    String? currentService,
+  }) = _AppSettingProps;
+
+  factory AppSettingProps.fromJson(Map<String, Object?> json) =>
+      _$AppSettingPropsFromJson(json);
+
+  factory AppSettingProps.safeFromJson(Map<String, Object?>? json) {
+    if (json == null) {
+      return defaultAppSettingProps;
+    }
+    return decodeOrRestoreDefault(
+      'app settings',
+      () => AppSettingProps.fromJson(json),
+      () => defaultAppSettingProps,
+    );
+  }
+}
+
+@freezed
+abstract class AccessControlProps with _$AccessControlProps {
+  const factory AccessControlProps({
+    @Default(false) bool enable,
     @Default(AccessControlMode.rejectSelected) AccessControlMode mode,
     @Default([]) List<String> acceptList,
     @Default([]) List<String> rejectList,
+    @Default(AccessSortType.none) AccessSortType sort,
     @Default(true) bool isFilterSystemApp,
-  }) = _AccessControl;
+    @Default(true) bool isFilterNonInternetApp,
+  }) = _AccessControlProps;
 
-  factory AccessControl.fromJson(Map<String, Object?> json) =>
-      _$AccessControlFromJson(json);
+  factory AccessControlProps.fromJson(Map<String, Object?> json) =>
+      _$AccessControlPropsFromJson(json);
+}
+
+extension AccessControlPropsExt on AccessControlProps {
+  List<String> get currentList => switch (mode) {
+    AccessControlMode.acceptSelected => acceptList,
+    AccessControlMode.rejectSelected => rejectList,
+  };
+
+  AccessControlProps copyWithNewList(List<String> value) => switch (mode) {
+    AccessControlMode.acceptSelected => copyWith(acceptList: value),
+    AccessControlMode.rejectSelected => copyWith(rejectList: value),
+  };
 }
 
 @freezed
-class Props with _$Props {
-  const factory Props({
-    AccessControl? accessControl,
-    bool? allowBypass,
-    bool? systemProxy,
-  }) = _Props;
+abstract class WindowProps with _$WindowProps {
+  const factory WindowProps({
+    @Default(0) double width,
+    @Default(0) double height,
+    double? top,
+    double? left,
+  }) = _WindowProps;
 
-  factory Props.fromJson(Map<String, Object?> json) => _$PropsFromJson(json);
+  factory WindowProps.fromJson(Map<String, Object?>? json) =>
+      json == null ? const WindowProps() : _$WindowPropsFromJson(json);
 }
 
-@JsonSerializable()
-class Config extends ChangeNotifier {
-  List<Profile> _profiles;
-  bool _isCompatible;
-  String? _currentProfileId;
-  bool _autoLaunch;
-  bool _silentLaunch;
-  bool _autoRun;
-  bool _openLog;
-  ThemeMode _themeMode;
-  String? _locale;
-  int? _primaryColor;
-  ProxiesSortType _proxiesSortType;
-  bool _isMinimizeOnExit;
-  bool _isAccessControl;
-  AccessControl _accessControl;
-  bool _isAnimateToPage;
-  bool _autoCheckUpdate;
-  bool _allowBypass;
-  bool _systemProxy;
-  DAV? _dav;
-  ProxiesType _proxiesType;
-  ProxyCardType _proxyCardType;
-  int _proxiesColumns;
+extension WindowPropsExt on WindowProps {
+  Size get _size => Size(width, height);
 
-  Config()
-      : _profiles = [],
-        _autoLaunch = false,
-        _silentLaunch = false,
-        _autoRun = false,
-        _themeMode = ThemeMode.system,
-        _openLog = false,
-        _isCompatible = true,
-        _primaryColor = defaultPrimaryColor.value,
-        _proxiesSortType = ProxiesSortType.none,
-        _isMinimizeOnExit = true,
-        _isAccessControl = false,
-        _autoCheckUpdate = true,
-        _systemProxy = true,
-        _accessControl = const AccessControl(),
-        _isAnimateToPage = true,
-        _allowBypass = true,
-        _proxyCardType = ProxyCardType.expand,
-        _proxiesType = ProxiesType.tab,
-        _proxiesColumns = 2;
+  Size get size => _size.isEmpty ? const Size(680, 580) : _size;
+}
 
-  deleteProfileById(String id) {
-    _profiles = profiles.where((element) => element.id != id).toList();
-    notifyListeners();
-  }
+@freezed
+abstract class VpnProps with _$VpnProps {
+  const factory VpnProps({
+    @Default(true) bool enable,
+    @Default(true) bool systemProxy,
+    @Default(false) bool ipv6,
+    @Default(true) bool allowBypass,
+    @Default(false) bool dnsHijacking,
+    @Default(defaultAccessControlProps) AccessControlProps accessControlProps,
+  }) = _VpnProps;
 
-  Profile? getCurrentProfileForId(String? value) {
-    if (value == null) {
-      return null;
+  factory VpnProps.fromJson(Map<String, Object?>? json) =>
+      json == null ? defaultVpnProps : _$VpnPropsFromJson(json);
+}
+
+@freezed
+abstract class AuthenticationProps with _$AuthenticationProps {
+  const factory AuthenticationProps({
+    @Default(false) bool enable,
+    @Default('') String username,
+    @Default('') String password,
+  }) = _AuthenticationProps;
+
+  factory AuthenticationProps.fromJson(Map<String, Object?>? json) =>
+      json == null
+      ? defaultAuthenticationProps
+      : _$AuthenticationPropsFromJson(json);
+}
+
+extension AuthenticationPropsExt on AuthenticationProps {
+  List<String> get credentials =>
+      enable && username.isNotEmpty ? ['$username:$password'] : [];
+}
+
+@freezed
+abstract class NetworkProps with _$NetworkProps {
+  const factory NetworkProps({
+    @Default(true) bool systemProxy,
+    @Default(defaultBypassDomain) List<String> bypassDomain,
+    @Default(RouteMode.config) RouteMode routeMode,
+    @Default(true) bool autoSetSystemDns,
+    @Default(false) bool appendSystemDns,
+    @Default(defaultAuthenticationProps) AuthenticationProps authentication,
+  }) = _NetworkProps;
+
+  factory NetworkProps.fromJson(Map<String, Object?>? json) =>
+      json == null ? const NetworkProps() : _$NetworkPropsFromJson(json);
+}
+
+/// Reads the styles named `standard`, `icon` and `none` before they became
+/// [ProxiesIconStyle.filled], [ProxiesIconStyle.plain] and
+/// [ProxiesIconStyle.hidden].
+ProxiesIconStyle proxiesIconStyleSafeFromJson(Object? iconStyle) {
+  return switch (iconStyle) {
+    'filled' || 'standard' => ProxiesIconStyle.filled,
+    'plain' || 'icon' => ProxiesIconStyle.plain,
+    'hidden' || 'none' => ProxiesIconStyle.hidden,
+    _ => ProxiesIconStyle.filled,
+  };
+}
+
+@freezed
+abstract class ProxiesStyleProps with _$ProxiesStyleProps {
+  const factory ProxiesStyleProps({
+    @Default(ProxiesType.tab) ProxiesType type,
+    @Default(ProxiesSortType.none) ProxiesSortType sortType,
+    @Default(ProxiesLayout.standard) ProxiesLayout layout,
+    @Default(ProxiesIconStyle.filled)
+    @JsonKey(fromJson: proxiesIconStyleSafeFromJson)
+    ProxiesIconStyle iconStyle,
+    @Default(ProxyCardType.shrink) ProxyCardType cardType,
+    @Default(false) bool hideTimeoutProxies,
+  }) = _ProxiesStyleProps;
+
+  factory ProxiesStyleProps.fromJson(Map<String, Object?>? json) => json == null
+      ? defaultProxiesStyleProps
+      : _$ProxiesStylePropsFromJson(json);
+}
+
+@freezed
+abstract class TextScale with _$TextScale {
+  const factory TextScale({
+    @Default(false) bool enable,
+    @Default(1.0) double scale,
+  }) = _TextScale;
+
+  factory TextScale.fromJson(Map<String, Object?> json) =>
+      _$TextScaleFromJson(json);
+}
+
+@freezed
+abstract class ThemeProps with _$ThemeProps {
+  const factory ThemeProps({
+    int? primaryColor,
+    @Default(defaultPrimaryColors) List<int> primaryColors,
+    @Default(ThemeMode.dark) ThemeMode themeMode,
+    @Default(DynamicSchemeVariant.content) DynamicSchemeVariant schemeVariant,
+    @Default(false) bool pureBlack,
+    @Default(true) bool sidebarBlur,
+    @Default(TextScale()) TextScale textScale,
+  }) = _ThemeProps;
+
+  factory ThemeProps.fromJson(Map<String, Object?> json) =>
+      _$ThemePropsFromJson(json);
+
+  factory ThemeProps.safeFromJson(Map<String, Object?>? json) {
+    if (json == null) {
+      return defaultThemeProps;
     }
-    return _profiles.firstWhere((element) => element.id == value);
-  }
-
-  Profile? getCurrentProfile() {
-    return getCurrentProfileForId(_currentProfileId);
-  }
-
-  String? _getLabel(String? label, String id) {
-    final realLabel = label ?? id;
-    final hasDup = _profiles.indexWhere(
-            (element) => element.label == realLabel && element.id != id) !=
-        -1;
-    if (hasDup) {
-      return _getLabel(other.getOverwriteLabel(realLabel), id);
-    } else {
-      return label;
-    }
-  }
-
-  _setProfile(Profile profile) {
-    final List<Profile> profilesTemp = List.from(_profiles);
-    final index =
-        profilesTemp.indexWhere((element) => element.id == profile.id);
-    final updateProfile = profile.copyWith(
-      label: _getLabel(profile.label, profile.id),
+    return decodeOrRestoreDefault(
+      'theme settings',
+      () => ThemeProps.fromJson(json),
+      () => defaultThemeProps,
     );
-    if (index == -1) {
-      profilesTemp.add(updateProfile);
-    } else {
-      profilesTemp[index] = updateProfile;
-    }
-    _profiles = profilesTemp;
   }
+}
 
-  setProfile(Profile profile) {
-    _setProfile(profile);
-    notifyListeners();
-  }
+@freezed
+abstract class Config with _$Config {
+  const factory Config({
+    int? currentProfileId,
+    @Default(false) bool overrideDns,
+    @Default(false) bool overrideNtp,
+    @Default([]) List<HotKeyAction> hotKeyActions,
+    @JsonKey(fromJson: AppSettingProps.safeFromJson)
+    @Default(defaultAppSettingProps)
+    AppSettingProps appSettingProps,
+    DAVProps? davProps,
+    @Default(defaultNetworkProps) NetworkProps networkProps,
+    @Default(defaultVpnProps) VpnProps vpnProps,
+    @JsonKey(fromJson: ThemeProps.safeFromJson) required ThemeProps themeProps,
+    @Default(defaultProxiesStyleProps) ProxiesStyleProps proxiesStyleProps,
+    @Default(defaultWindowProps) WindowProps windowProps,
+    @Default(defaultClashConfig) PatchClashConfig patchClashConfig,
+    @Default([]) List<String> excludeSSIDs,
+  }) = _Config;
 
-  @JsonKey(defaultValue: [])
-  List<Profile> get profiles => _profiles;
+  factory Config.fromJson(Map<String, Object?> json) => _$ConfigFromJson(json);
 
-  set profiles(List<Profile> value) {
-    if (_profiles != value) {
-      _profiles = value;
-      notifyListeners();
-    }
-  }
-
-  String? get currentProfileId => _currentProfileId;
-
-  set currentProfileId(String? value) {
-    if (_currentProfileId != value) {
-      _currentProfileId = value;
-      notifyListeners();
-    }
-  }
-
-  Profile? get currentProfile {
-    final index =
-        profiles.indexWhere((profile) => profile.id == _currentProfileId);
-    return index == -1 ? null : profiles[index];
-  }
-
-  String? get currentGroupName => currentProfile?.currentGroupName;
-
-  Set<String> get currentUnfoldSet => currentProfile?.unfoldSet ?? {};
-
-  updateCurrentUnfoldSet(Set<String> value) {
-    if (!const SetEquality<String>().equals(currentUnfoldSet, value)) {
-      _setProfile(
-        currentProfile!.copyWith(
-          unfoldSet: value,
-        ),
+  factory Config.realFromJson(Map<String, Object?>? json) {
+    if (json == null) {
+      return Config(
+        themeProps: defaultThemeProps,
+        hotKeyActions: defaultHotKeyActions,
       );
-      notifyListeners();
     }
-  }
-
-  updateCurrentGroupName(String groupName) {
-    if (currentProfile != null &&
-        currentProfile!.currentGroupName != groupName) {
-      _setProfile(
-        currentProfile!.copyWith(
-          currentGroupName: groupName,
-        ),
-      );
-      notifyListeners();
-    }
-  }
-
-  SelectedMap get currentSelectedMap {
-    return currentProfile?.selectedMap ?? {};
-  }
-
-  updateCurrentSelectedMap(String groupName, String proxyName) {
-    if (currentProfile != null &&
-        currentProfile!.selectedMap[groupName] != proxyName) {
-      final SelectedMap selectedMap = Map.from(
-        currentProfile?.selectedMap ?? {},
-      )..[groupName] = proxyName;
-      _setProfile(
-        currentProfile!.copyWith(
-          selectedMap: selectedMap,
-        ),
-      );
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: false)
-  bool get autoLaunch {
-    if (!system.isDesktop) return false;
-    return _autoLaunch;
-  }
-
-  set autoLaunch(bool value) {
-    if (_autoLaunch != value) {
-      _autoLaunch = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: false)
-  bool get silentLaunch => _silentLaunch;
-
-  set silentLaunch(bool value) {
-    if (_silentLaunch != value) {
-      _silentLaunch = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: false)
-  bool get autoRun => _autoRun;
-
-  set autoRun(bool value) {
-    if (_autoRun != value) {
-      _autoRun = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: ThemeMode.system)
-  ThemeMode get themeMode => _themeMode;
-
-  set themeMode(ThemeMode value) {
-    if (_themeMode != value) {
-      _themeMode = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: false)
-  bool get openLogs => _openLog;
-
-  set openLogs(bool value) {
-    if (_openLog != value) {
-      _openLog = value;
-      notifyListeners();
-    }
-  }
-
-  String? get locale => _locale;
-
-  set locale(String? value) {
-    if (_locale != value) {
-      _locale = value;
-      notifyListeners();
-    }
-  }
-
-  int? get primaryColor => _primaryColor;
-
-  set primaryColor(int? value) {
-    if (_primaryColor != value) {
-      _primaryColor = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: ProxiesSortType.none)
-  ProxiesSortType get proxiesSortType => _proxiesSortType;
-
-  set proxiesSortType(ProxiesSortType value) {
-    if (_proxiesSortType != value) {
-      _proxiesSortType = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get isMinimizeOnExit => _isMinimizeOnExit;
-
-  set isMinimizeOnExit(bool value) {
-    if (_isMinimizeOnExit != value) {
-      _isMinimizeOnExit = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: false)
-  bool get isAccessControl {
-    if (!Platform.isAndroid) return false;
-    return _isAccessControl;
-  }
-
-  set isAccessControl(bool value) {
-    if (_isAccessControl != value) {
-      _isAccessControl = value;
-      notifyListeners();
-    }
-  }
-
-  AccessControl get accessControl => _accessControl;
-
-  set accessControl(AccessControl value) {
-    if (_accessControl != value) {
-      _accessControl = value;
-      notifyListeners();
-    }
-  }
-
-  DAV? get dav => _dav;
-
-  set dav(DAV? value) {
-    if (_dav != value) {
-      _dav = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get isAnimateToPage {
-    if (!Platform.isAndroid) return false;
-    return _isAnimateToPage;
-  }
-
-  set isAnimateToPage(bool value) {
-    if (_isAnimateToPage != value) {
-      _isAnimateToPage = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get isCompatible {
-    return _isCompatible;
-  }
-
-  set isCompatible(bool value) {
-    if (_isCompatible != value) {
-      _isCompatible = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get autoCheckUpdate {
-    return _autoCheckUpdate;
-  }
-
-  set autoCheckUpdate(bool value) {
-    if (_autoCheckUpdate != value) {
-      _autoCheckUpdate = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get allowBypass {
-    return _allowBypass;
-  }
-
-  set allowBypass(bool value) {
-    if (_allowBypass != value) {
-      _allowBypass = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: true)
-  bool get systemProxy {
-    return _systemProxy;
-  }
-
-  set systemProxy(bool value) {
-    if (_systemProxy != value) {
-      _systemProxy = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: ProxiesType.tab)
-  ProxiesType get proxiesType => _proxiesType;
-
-  set proxiesType(ProxiesType value) {
-    if (_proxiesType != value) {
-      _proxiesType = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: ProxyCardType.expand)
-  ProxyCardType get proxyCardType => _proxyCardType;
-
-  set proxyCardType(ProxyCardType value) {
-    if (_proxyCardType != value) {
-      _proxyCardType = value;
-      notifyListeners();
-    }
-  }
-
-  @JsonKey(defaultValue: 2)
-  int get proxiesColumns => _proxiesColumns;
-
-  set proxiesColumns(int value) {
-    if (_proxiesColumns != value) {
-      _proxiesColumns = value;
-      notifyListeners();
-    }
-  }
-
-  update([
-    Config? config,
-    RecoveryOption recoveryOptions = RecoveryOption.all,
-  ]) {
-    if (config != null) {
-      _profiles = config._profiles;
-      for (final profile in config._profiles) {
-        _setProfile(profile);
-      }
-      final onlyProfiles = recoveryOptions == RecoveryOption.onlyProfiles;
-      if (_currentProfileId == null && onlyProfiles && profiles.isNotEmpty) {
-        _currentProfileId = _profiles.first.id;
-      }
-      if (onlyProfiles) return;
-      _currentProfileId = config._currentProfileId;
-      _isCompatible = config._isCompatible;
-      _autoLaunch = config._autoLaunch;
-      _silentLaunch = config._silentLaunch;
-      _autoRun = config._autoRun;
-      _proxiesType = config._proxiesType;
-      _openLog = config._openLog;
-      _themeMode = config._themeMode;
-      _locale = config._locale;
-      _allowBypass = config._allowBypass;
-      _primaryColor = config._primaryColor;
-      _proxiesSortType = config._proxiesSortType;
-      _isMinimizeOnExit = config._isMinimizeOnExit;
-      _isAccessControl = config._isAccessControl;
-      _accessControl = config._accessControl;
-      _isAnimateToPage = config._isAnimateToPage;
-      _autoCheckUpdate = config._autoCheckUpdate;
-      _dav = config._dav;
-    }
-    notifyListeners();
-  }
-
-  Map<String, dynamic> toJson() {
-    return _$ConfigToJson(this);
-  }
-
-  factory Config.fromJson(Map<String, dynamic> json) {
     return _$ConfigFromJson(json);
-  }
-
-  @override
-  String toString() {
-    return 'Config{_profiles: $_profiles, _isCompatible: $_isCompatible, _currentProfileId: $_currentProfileId, _autoLaunch: $_autoLaunch, _silentLaunch: $_silentLaunch, _autoRun: $_autoRun, _openLog: $_openLog, _themeMode: $_themeMode, _locale: $_locale, _primaryColor: $_primaryColor, _proxiesSortType: $_proxiesSortType, _isMinimizeOnExit: $_isMinimizeOnExit, _isAccessControl: $_isAccessControl, _accessControl: $_accessControl, _isAnimateToPage: $_isAnimateToPage, _dav: $_dav}';
   }
 }

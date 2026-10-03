@@ -1,107 +1,92 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:io' as io;
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
-import 'package:fl_clash/state.dart';
-import 'package:path/path.dart';
-import 'package:webdav_client/webdav_client.dart';
+import 'package:flutter/foundation.dart';
+
+typedef DAVClientFactory = DAVClient Function(DAVProps props);
 
 class DAVClient {
-  late Client client;
-  Completer<bool> pingCompleter = Completer();
+  DAVClient(DAVProps dav)
+    : _transport = DAVTransport(
+        uri: dav.uri,
+        user: dav.user,
+        password: dav.password,
+      ),
+      fileName = dav.fileName;
 
-  DAVClient(DAV dav) {
-    client = newClient(
-      dav.uri,
-      user: dav.user,
-      password: dav.password,
-    );
-    client.setHeaders(
-      {
-        'accept-charset': 'utf-8',
-        'Content-Type': 'text/xml',
-      },
-    );
-    client.setConnectTimeout(8000);
-    client.setSendTimeout(8000);
-    client.setReceiveTimeout(8000);
-    pingCompleter.complete(_ping());
-  }
+  final DAVTransport _transport;
+  final String fileName;
 
-  Future<bool> _ping() async {
+  Future<bool> ping() async {
     try {
-      await client.ping();
-      await client.mkdir("/$appName");
-      await client.mkdir("/$appName/$profilesDirectoryName");
+      await _transport.options('/');
       return true;
-    } catch (_) {
+    } catch (e) {
+      commonPrint.log(
+        'dav ping error ${e.toString()}',
+        logLevel: LogLevel.warning,
+      );
       return false;
     }
   }
 
-  get root => "/$appName";
+  String get root => '/$appName';
 
-  get remoteConfig => "$root/$configKey.json";
+  String get backupFile => '$root/$fileName';
 
-  get remoteClashConfig => "$root/$clashConfigKey.json";
-
-  get remoteProfiles => "$root/$profilesDirectoryName";
-
-  backup() async {
-    final appController = globalState.appController;
-    final config = appController.config;
-    final clashConfig = appController.clashConfig;
-    await client.mkdir("$root");
-    client.write(
-      remoteConfig,
-      utf8.encode(
-        json.encode(config.toJson()),
-      ),
-    );
-    client.write(
-      remoteClashConfig,
-      utf8.encode(
-        json.encode(clashConfig.toJson()),
-      ),
-    );
-    await client.remove(remoteProfiles);
-    for (final profile in config.profiles) {
-      final path = await appPath.getProfilePath(profile.id);
-      if (path == null) continue;
-      await client.writeFromFile(
-        path,
-        "$remoteProfiles/${basename(path)}",
-      );
-    }
-    return true;
+  Future<void> upload(String localPath) async {
+    await _transport.mkcol(root);
+    await _transport.put(backupFile, await io.File(localPath).readAsBytes());
   }
 
-  recovery({required RecoveryOption recoveryOption}) async {
-    final profiles = await client.readDir(remoteProfiles);
-    final profilesPath = await appPath.getProfilesPath();
-    for (final file in profiles) {
-      await client.read2File(
-        "$remoteProfiles/${file.name}",
-        join(
-          profilesPath,
-          file.name,
-        ),
-      );
+  Future<void> download(String localPath) async {
+    final bytes = await _transport.get(backupFile);
+    await io.File(localPath).safeWriteAsBytes(bytes);
+  }
+}
+
+class DAVConnectionController extends ValueNotifier<bool?> {
+  DAVConnectionController({DAVClientFactory? createClient})
+    : _createClient = createClient ?? DAVClient.new,
+      super(null);
+
+  final DAVClientFactory _createClient;
+
+  DAVProps? _lastProps;
+  bool _hasUpdated = false;
+  int _requestId = 0;
+  bool _disposed = false;
+
+  DAVClient? client;
+
+  Future<void> update(DAVProps? props) async {
+    final nextClient = props == null ? null : _createClient(props);
+    client = nextClient;
+
+    final rawProps = props?.copyWith(fileName: '');
+    final rawLastProps = _lastProps?.copyWith(fileName: '');
+    final isSameCredentials = _hasUpdated && rawProps == rawLastProps;
+    _lastProps = props;
+    _hasUpdated = true;
+    if (isSameCredentials) {
+      return;
     }
-    final configRaw = utf8.decode((await client.read(remoteConfig)));
-    final clashConfigRaw = utf8.decode(await client.read(remoteClashConfig));
-    final config = Config.fromJson(json.decode(configRaw));
-    final clashConfig = ClashConfig.fromJson(json.decode(clashConfigRaw));
-    if(recoveryOption == RecoveryOption.onlyProfiles){
-      globalState.appController.config.update(config, RecoveryOption.onlyProfiles);
-    }else{
-      globalState.appController.config.update(config, RecoveryOption.all);
-      globalState.appController.clashConfig.update(clashConfig);
+
+    final requestId = ++_requestId;
+    value = null;
+    final result = await nextClient?.ping() ?? false;
+    if (!_disposed && requestId == _requestId) {
+      value = result;
     }
-    await globalState.appController.applyProfile();
-    globalState.appController.savePreferences();
-    return true;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _requestId++;
+    super.dispose();
   }
 }

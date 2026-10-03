@@ -1,48 +1,133 @@
-import 'package:fl_clash/enum/enum.dart';
-import 'package:flutter/material.dart';
+import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/icons/icons.dart';
+import 'package:material_ui/material_ui.dart';
 
 class CommonChip extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
-  final ChipType type;
-  final Widget? avatar;
+  final VoidCallback? onDeleted;
 
   const CommonChip({
     super.key,
     required this.label,
     this.onPressed,
-    this.avatar,
-    this.type = ChipType.action,
+    this.onDeleted,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (type == ChipType.delete) {
-      return Chip(
-        avatar: avatar,
-        padding: const EdgeInsets.symmetric(
-          vertical: 0,
-          horizontal: 4,
-        ),
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        onDeleted: onPressed ?? () {},
-        side:
-            BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.2)),
-        labelStyle: Theme.of(context).textTheme.bodyMedium,
-        label: Text(label),
-      );
-    }
-    return ActionChip(
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      avatar: avatar,
-      padding: const EdgeInsets.symmetric(
-        vertical: 0,
-        horizontal: 4,
+    final colorScheme = context.colorScheme;
+    final foregroundColor = colorScheme.onSurfaceVariant;
+    final content = Padding(
+      padding: EdgeInsets.only(
+        left: 8,
+        right: onDeleted != null ? 6 : 8,
+        top: 3,
+        bottom: 3,
       ),
-      onPressed: onPressed ?? () {},
-      side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.2)),
-      labelStyle: Theme.of(context).textTheme.bodyMedium,
-      label: Text(label),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 4,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.textTheme.labelMedium?.copyWith(
+                color: foregroundColor,
+              ),
+            ),
+          ),
+          if (onDeleted != null)
+            InkWell(
+              onTap: onDeleted,
+              customBorder: AppShape.circle,
+              focusColor: colorScheme.primary.opacity30,
+              child: GlyphIcon(
+                AppGlyphs.close,
+                size: 14,
+                color: foregroundColor,
+              ),
+            ),
+        ],
+      ),
+    );
+    return Material(
+      color: colorScheme.surfaceContainerHighest,
+      shape: AppShape.sm.copyWith(
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: onPressed == null
+          ? content
+          : InkWell(onTap: onPressed, child: content),
+    );
+  }
+}
+
+class TonalChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Color foregroundColor;
+  final VoidCallback? onPressed;
+
+  const TonalChip({
+    super.key,
+    required this.label,
+    required this.color,
+    required this.foregroundColor,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: context.textTheme.labelMedium?.copyWith(color: foregroundColor),
+      ),
+    );
+    return Material(
+      color: color,
+      shape: AppShape.sm,
+      clipBehavior: Clip.antiAlias,
+      child: onPressed == null
+          ? content
+          : InkWell(onTap: onPressed, child: content),
+    );
+  }
+}
+
+class MetaChip extends StatelessWidget {
+  final String label;
+
+  const MetaChip({super.key, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        shape: AppShape.sm.copyWith(
+          side: BorderSide(color: colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.textTheme.labelSmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -21,8 +21,8 @@
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
-		    <key>CFBundleTypeRole</key>
-		    <string>Editor</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
 			<key>CFBundleURLName</key>
 			<string></string>
 			<key>CFBundleURLSchemes</key>
@@ -43,5 +43,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FlClash needs location access to detect WiFi network name for connectivity features.</string>
 </dict>
 </plist>

@@ -1,4 +1,6 @@
-import 'package:fl_clash/common/app_localizations.dart';
+import 'package:flutter/widgets.dart';
+
+import 'context.dart';
 
 extension DateTimeExtension on DateTime {
   bool get isBeforeNow {
@@ -12,31 +14,66 @@ extension DateTimeExtension on DateTime {
     return true;
   }
 
-  String get lastUpdateTimeDesc {
+  String getLastUpdateTimeDesc(BuildContext context) {
+    final appLocalizations = context.appLocalizations;
+    if (year <= 1970) {
+      return appLocalizations.unknown;
+    }
     final currentDateTime = DateTime.now();
     final difference = currentDateTime.difference(this);
     final days = difference.inDays;
     if (days >= 365) {
-      return "${(days / 365).floor()} ${appLocalizations.years}${appLocalizations.ago}";
+      final years = (days / 365).floor();
+      return appLocalizations.yearsAgo(years);
     }
     if (days >= 30) {
-      return "${(days / 30).floor()} ${appLocalizations.months}${appLocalizations.ago}";
+      final months = (days / 30).floor();
+      return appLocalizations.monthsAgo(months);
     }
     if (days >= 1) {
-      return "$days ${appLocalizations.days}${appLocalizations.ago}";
+      return appLocalizations.daysAgo(days);
     }
     final hours = difference.inHours;
     if (hours >= 1) {
-      return "$hours ${appLocalizations.hours}${appLocalizations.ago}";
+      return appLocalizations.hoursAgo(hours);
     }
     final minutes = difference.inMinutes;
     if (minutes >= 1) {
-      return "$minutes ${appLocalizations.minutes}${appLocalizations.ago}";
+      return appLocalizations.minutesAgo(minutes);
     }
-    return appLocalizations.just;
+    return appLocalizations.justNow;
   }
 
   String get show {
-    return toIso8601String().substring(0, 10);
+    return toLocal().toString().substring(0, 10);
   }
+
+  String get showFull {
+    return toLocal().toString().substring(0, 19);
+  }
+
+  String get showTime {
+    return toLocal().toString().substring(10, 19);
+  }
+}
+
+String getDateStringLast2(int value) {
+  final valueRaw = '0$value';
+  return valueRaw.substring(valueRaw.length - 2);
+}
+
+String getTimeText(int? timeStamp) {
+  if (timeStamp == null) {
+    return '00:00:00';
+  }
+  final diff = timeStamp / 1000;
+  final inHours = (diff / 3600).floor();
+  if (inHours > 999) {
+    return '999:59:59';
+  }
+  final inMinutes = (diff / 60 % 60).floor();
+  final inSeconds = (diff % 60).floor();
+  final hoursText = inHours.toString().padLeft(2, '0');
+
+  return '$hoursText:${getDateStringLast2(inMinutes)}:${getDateStringLast2(inSeconds)}';
 }

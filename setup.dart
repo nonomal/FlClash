@@ -1,406 +1,408 @@
-// ignore_for_file: avoid_print
-
 import 'dart:convert';
 import 'dart:io';
-import 'package:args/command_runner.dart';
-import 'package:path/path.dart';
 
-enum PlatformType {
-  windows,
-  linux,
-  android,
-  macos,
+import 'package:args/args.dart';
+import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
+
+const _allTargets = <String, String>{
+  'android': 'apk',
+  'linux': 'deb,appimage,rpm',
+  'macos': 'dmg',
+  'windows': 'exe,zip',
+};
+
+const _androidFlutterTarget = {
+  'arm': 'android-arm',
+  'arm64': 'android-arm64',
+  'amd64': 'android-x64',
+};
+
+const _hostPlatform = {
+  'linux': 'linux',
+  'macos': 'macos',
+  'windows': 'windows',
+};
+
+Future<void> main(List<String> args) async {
+  final parser = createSetupArgParser();
+
+  if (args.contains('--help') || args.contains('-h')) {
+    _showHelp(parser);
+    exit(0);
+  }
+
+  final results = parser.parse(args);
+  final rest = results.rest;
+
+  final hostOs = Platform.operatingSystem;
+  final host = _hostPlatform[hostOs];
+  if (host == null) {
+    stderr.writeln('Unsupported host platform: $hostOs');
+    exit(1);
+  }
+
+  final platform = rest.isNotEmpty ? rest.first : host;
+
+  if (platform != host && platform != 'android') {
+    stderr.writeln(
+      'Cannot build "$platform" on $hostOs. Allowed: $host, android',
+    );
+    _showHelp(parser);
+    exit(1);
+  }
+
+  final env = results['env'] as String;
+  final rootDir = Directory.current.path;
+  final skipped = packagesNotBuildingAssets(
+    File(p.join(rootDir, 'pubspec.yaml')).readAsStringSync(),
+  );
+  if (skipped.isNotEmpty) {
+    stderr.writeln(
+      'pubspec.yaml sets hooks.user_defines.<package>.build_assets: false '
+      'for ${skipped.join(', ')}; a package built this way would ship '
+      'whatever is left in libclash/ and no Rust library. '
+      'Restore "build_assets: true".',
+    );
+    exit(1);
+  }
+  final arch = _detectArch();
+  final targets = createPackageTargets(platform, results['targets']);
+  final androidArch = results['arch'] as String?;
+  final verbose = results['verbose'] as bool;
+
+  final exitCode = await _package(
+    platform,
+    env,
+    targets,
+    rootDir,
+    arch,
+    androidArch: androidArch,
+    verbose: verbose,
+  );
+  exit(exitCode);
 }
 
-enum Arch { amd64, arm64, arm }
+ArgParser createSetupArgParser() {
+  return ArgParser()
+    ..addOption(
+      'env',
+      defaultsTo: 'pre',
+      allowed: ['dev', 'pre', 'stable'],
+      help: 'Application environment',
+    )
+    ..addOption(
+      'targets',
+      valueHelp: 'exe,zip,dmg,apk,...',
+      help: 'Package targets (default: all for platform)',
+    )
+    ..addOption(
+      'arch',
+      valueHelp: 'arm,arm64,amd64',
+      allowed: ['arm', 'arm64', 'amd64'],
+      help: 'Target architecture (Android only)',
+    )
+    ..addFlag(
+      'verbose',
+      abbr: 'v',
+      negatable: false,
+      help: 'Enable verbose Flutter build output',
+    );
+}
 
-class BuildLibItem {
-  PlatformType platform;
-  Arch arch;
-  String archName;
+List<String> createFlutterBuildArgs({
+  required String platform,
+  required bool verbose,
+}) {
+  final flutterBuildArgs = <String>[
+    if (verbose) 'verbose',
+    'dart-define-from-file=env.json',
+  ];
+  if (platform == 'android') {
+    flutterBuildArgs.add('split-per-abi');
+  }
+  return flutterBuildArgs;
+}
 
-  BuildLibItem({
-    required this.platform,
-    required this.arch,
-    required this.archName,
+Map<String, String> createBuildEnvironment(String env) {
+  return {'APP_ENV': env};
+}
+
+/// Packages whose build hook `pubspec.yaml` turns into a no-op.
+List<String> packagesNotBuildingAssets(String pubspec) {
+  final document = loadYaml(pubspec);
+  if (document is! Map) return const [];
+  final defines = (document['hooks'] as Map?)?['user_defines'];
+  if (defines is! Map) return const [];
+  return [
+    for (final MapEntry(:key, :value) in defines.entries)
+      if (value is Map && value['build_assets'] == false) key.toString(),
+  ]..sort();
+}
+
+String createPackageTargets(String platform, String? customTargets) {
+  return customTargets ?? _allTargets[platform]!;
+}
+
+void _showHelp(ArgParser parser) {
+  stderr.writeln('Usage: dart setup.dart [platform] [options]');
+  stderr.writeln('Platform: current host platform (default) or android');
+  stderr.writeln();
+  stderr.writeln('Default package targets:');
+  _allTargets.forEach((p, t) => stderr.writeln('  $p: $t'));
+  stderr.writeln();
+  stderr.writeln(parser.usage);
+}
+
+Future<int> _package(
+  String platform,
+  String env,
+  String targets,
+  String rootDir,
+  String arch, {
+  String? androidArch,
+  required bool verbose,
+}) async {
+  final file = File(p.join(rootDir, 'env.json'));
+  await file.writeAsString(jsonEncode(createBuildEnvironment(env)));
+
+  final flutterBuildArgs = createFlutterBuildArgs(
+    platform: platform,
+    verbose: verbose,
+  );
+  final descriptionArgs = <String>[];
+  if (platform != 'android') {
+    descriptionArgs.addAll(['--description', arch]);
+  }
+
+  final depExit = await _ensureDependencies(platform);
+  if (depExit != 0) return depExit;
+
+  final activateResult = await Process.run('dart', [
+    'pub',
+    'global',
+    'activate',
+    '-s',
+    'git',
+    'https://github.com/chen08209/flutter_distributor.git',
+    '--git-ref',
+    'v0.6.11-flclash.2',
+    '--git-path',
+    'packages/flutter_distributor',
+  ]);
+  if (activateResult.exitCode != 0) {
+    stderr.write(activateResult.stderr);
+    return activateResult.exitCode;
+  }
+
+  final process = await Process.start(
+    'flutter_distributor',
+    [
+      'package',
+      '--skip-clean',
+      '--platform',
+      platform,
+      '--targets',
+      targets,
+      if (androidArch != null)
+        '--build-target-platform=${_androidFlutterTarget[androidArch]!}',
+      if (flutterBuildArgs.isNotEmpty)
+        '--flutter-build-args=${flutterBuildArgs.join(',')}',
+      ...descriptionArgs,
+    ],
+    includeParentEnvironment: true,
+    runInShell: Platform.isWindows,
+  );
+
+  process.stdout.listen((data) {
+    stdout.write(utf8.decode(data));
   });
-
-  String get dynamicLibExtensionName {
-    final String extensionName;
-    switch (platform) {
-      case PlatformType.android || PlatformType.linux:
-        extensionName = "so";
-        break;
-      case PlatformType.windows:
-        extensionName = "dll";
-        break;
-      case PlatformType.macos:
-        extensionName = "dylib";
-        break;
-    }
-    return extensionName;
-  }
-
-  String get os {
-    if (platform == PlatformType.macos) {
-      return "darwin";
-    }
-    return platform.name;
-  }
+  process.stderr.listen((data) {
+    stderr.write(utf8.decode(data));
+  });
+  final exitCode = await process.exitCode;
+  return exitCode;
 }
 
-class Build {
-  static List<BuildLibItem> get buildItems => [
-        BuildLibItem(
-          platform: PlatformType.macos,
-          arch: Arch.amd64,
-          archName: 'amd64',
-        ),
-        BuildLibItem(
-          platform: PlatformType.windows,
-          arch: Arch.amd64,
-          archName: 'amd64',
-        ),
-        BuildLibItem(
-          platform: PlatformType.android,
-          arch: Arch.arm,
-          archName: 'armeabi-v7a',
-        ),
-        BuildLibItem(
-          platform: PlatformType.android,
-          arch: Arch.arm64,
-          archName: 'arm64-v8a',
-        ),
-        BuildLibItem(
-          platform: PlatformType.android,
-          arch: Arch.amd64,
-          archName: 'x86_64',
-        ),
-        BuildLibItem(
-          platform: PlatformType.linux,
-          arch: Arch.amd64,
-          archName: 'amd64',
-        ),
-      ];
-
-  static String get appName => "FlClash";
-
-  static String get libName => "libclash";
-
-  static String get outDir => join(current, libName);
-
-  static String get _coreDir => join(current, "core");
-
-  static String get distPath => join(current, "dist");
-
-  static String _getCc(BuildLibItem buildItem) {
-    final environment = Platform.environment;
-    if (buildItem.platform == PlatformType.android) {
-      final ndk = environment["ANDROID_NDK"];
-      assert(ndk != null);
-      final prebuiltDir =
-          Directory(join(ndk!, "toolchains", "llvm", "prebuilt"));
-      final prebuiltDirList = prebuiltDir.listSync();
-      final map = {
-        "armeabi-v7a": "armv7a-linux-androideabi21-clang",
-        "arm64-v8a": "aarch64-linux-android21-clang",
-        "x86": "i686-linux-android21-clang",
-        "x86_64": "x86_64-linux-android21-clang"
-      };
-      return join(
-        prebuiltDirList.first.path,
-        "bin",
-        map[buildItem.archName],
-      );
-    }
-    return "gcc";
-  }
-
-  static get tags => "with_gvisor";
-
-  static Future<void> exec(
-    List<String> executable, {
-    String? name,
-    Map<String, String>? environment,
-    String? workingDirectory,
-    bool runInShell = true,
-  }) async {
-    if (name != null) print("run $name");
-    final process = await Process.start(
-      executable[0],
-      executable.sublist(1),
-      environment: environment,
-      workingDirectory: workingDirectory,
-      runInShell: runInShell,
-    );
-    process.stdout.listen((data) {
-      print(utf8.decode(data));
-    });
-    process.stderr.listen((data) {
-      print(utf8.decode(data));
-    });
-    final exitCode = await process.exitCode;
-    if (exitCode != 0 && name != null) throw "$name error";
-  }
-
-  static buildLib({
-    required PlatformType platform,
-    Arch? arch,
-  }) async {
-    final items = buildItems.where(
-      (element) {
-        return element.platform == platform && arch == null
-            ? true
-            : element.arch == arch;
-      },
-    ).toList();
-    for (final item in items) {
-      final outFileDir = join(
-        outDir,
-        item.platform.name,
-        item.archName,
-      );
-      final file = File(outFileDir);
-      if (file.existsSync()) {
-        file.deleteSync(recursive: true);
-      }
-      final outPath = join(
-        outFileDir,
-        "$libName.${item.dynamicLibExtensionName}",
-      );
-      final Map<String, String> env = {};
-      env["GOOS"] = item.os;
-      env["GOARCH"] = item.arch.name;
-      env["CGO_ENABLED"] = "1";
-      env["CC"] = _getCc(item);
-      if (item.platform == PlatformType.macos) {
-        env["CGO_CFLAGS"] = "-mmacosx-version-min=10.11";
-        env["CGO_LDFLAGS"] = "-mmacosx-version-min=10.11";
-      }
-
-      await exec(
-        [
-          "go",
-          "build",
-          "-ldflags=-w -s",
-          "-tags=$tags",
-          "-buildmode=c-shared",
-          "-o",
-          outPath,
-        ],
-        name: "build libclash",
-        environment: env,
-        workingDirectory: _coreDir,
-      );
-    }
-  }
-
-  static List<String> getExecutable(String command) {
-    return command.split(" ");
-  }
-
-  static getDistributor() async {
-    final distributorDir = join(
-      current,
-      "plugins",
-      "flutter_distributor",
-      "packages",
-      "flutter_distributor",
-    );
-
-    await exec(
-      name: "clean distributor",
-      Build.getExecutable("flutter clean"),
-      workingDirectory: distributorDir,
-    );
-    await exec(
-      name: "get distributor",
-      Build.getExecutable("dart pub global activate -s path $distributorDir"),
-    );
-  }
-
-  static copyFile(String sourceFilePath, String destinationFilePath) {
-    final sourceFile = File(sourceFilePath);
-    if (!sourceFile.existsSync()) {
-      throw "SourceFilePath not exists";
-    }
-    final destinationFile = File(destinationFilePath);
-    final destinationDirectory = destinationFile.parent;
-    if (!destinationDirectory.existsSync()) {
-      destinationDirectory.createSync(recursive: true);
-    }
-    try {
-      sourceFile.copySync(destinationFilePath);
-      print("File copied successfully!");
-    } catch (e) {
-      print("Failed to copy file: $e");
-    }
-  }
-}
-
-class BuildCommand extends Command {
-  PlatformType platform;
-
-  BuildCommand({
-    required this.platform,
-  }) {
-    argParser.addOption(
-      "build",
-      valueHelp: [
-        'all',
-        'lib',
-      ].join(','),
-      help: 'The $name build type',
-    );
-    argParser.addOption(
-      "arch",
-      valueHelp: arches.map((e) => e.name).join(','),
-      help: 'The $name build arch',
-    );
-  }
-
-  @override
-  String get description => "build $name application";
-
-  @override
-  String get name => platform.name;
-
-  List<Arch> get arches => Build.buildItems
-      .where((element) => element.platform == platform)
-      .map((e) => e.arch)
-      .toList();
-
-  Future<void> _buildLib(Arch? arch) async {
-    await Build.buildLib(platform: platform, arch: arch);
-  }
-
-  _getLinuxDependencies() async {
-    await Build.exec(
-      Build.getExecutable("sudo apt update -y"),
-    );
-    await Build.exec(
-      Build.getExecutable("sudo apt install -y ninja-build libgtk-3-dev"),
-    );
-    await Build.exec(
-      Build.getExecutable("sudo apt install -y libayatana-appindicator3-dev"),
-    );
-    await Build.exec(
-      Build.getExecutable("sudo apt install -y rpm patchelf"),
-    );
-    await Build.exec(
-      Build.getExecutable("sudo apt install -y locate"),
-    );
-    await Build.exec(
-      Build.getExecutable("sudo apt install -y libfuse2"),
-    );
-    await Build.exec(
-      Build.getExecutable(
-        "wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage",
-      ),
-    );
-    await Build.exec(
-      Build.getExecutable(
-        "chmod +x appimagetool",
-      ),
-    );
-    await Build.exec(
-      Build.getExecutable(
-        "sudo mv appimagetool /usr/local/bin/",
-      ),
-    );
-  }
-
-  _getMacosDependencies() async {
-    await Build.exec(
-      Build.getExecutable("npm install -g appdmg"),
-    );
-  }
-
-  _buildDistributor({
-    required PlatformType platform,
-    required String targets,
-    String args = '',
-  }) async {
-    await Build.getDistributor();
-    await Build.exec(
-      name: name,
-      Build.getExecutable(
-        "flutter_distributor package --skip-clean --platform ${platform.name} --targets $targets --flutter-build-args=verbose $args",
-      ),
-    );
-  }
-
-  @override
-  Future<void> run() async {
-    final String build = argResults?['build'] ?? 'all';
-    final archName = argResults?['arch'];
-    final currentArches =
-        arches.where((element) => element.name == archName).toList();
-    final arch = currentArches.isEmpty ? null : currentArches.first;
-    await _buildLib(arch);
-    if (build != "all") {
-      return;
-    }
-    switch (platform) {
-      case PlatformType.windows:
-        _buildDistributor(
-          platform: platform,
-          targets: "exe,zip",
-          args: "--description amd64",
-        );
-        break;
-      case PlatformType.linux:
-        await _getLinuxDependencies();
-        _buildDistributor(
-          platform: platform,
-          targets: "appimage,deb,rpm",
-          args: "--description amd64",
-        );
-        break;
-      case PlatformType.android:
-        final targetMap = {
-          Arch.arm: "android-arm",
-          Arch.arm64: "android-arm64",
-          Arch.amd64: "android-x64",
-        };
-        final defaultArches = [Arch.arm, Arch.arm64, Arch.amd64];
-        final defaultTargets = defaultArches
-            .where((element) => arch == null ? true : element == arch)
-            .map((e) => targetMap[e])
-            .toList();
-        _buildDistributor(
-          platform: platform,
-          targets: "apk",
-          args:
-              "--flutter-build-args split-per-abi --build-target-platform ${defaultTargets.join(",")}",
-        );
-        break;
-      case PlatformType.macos:
-        await _getMacosDependencies();
-        _buildDistributor(
-          platform: platform,
-          targets: "dmg",
-          args: "--description amd64",
-        );
-        break;
-    }
-  }
-}
-
-main(args) async {
-  final runner = CommandRunner("setup", "build Application");
-  runner.addCommand(BuildCommand(platform: PlatformType.android));
+String _detectArch() {
   if (Platform.isWindows) {
-    runner.addCommand(BuildCommand(platform: PlatformType.windows));
+    final pa = Platform.environment['PROCESSOR_ARCHITECTURE'] ?? 'AMD64';
+    return pa.toUpperCase() == 'ARM64' ? 'arm64' : 'amd64';
   }
-  if (Platform.isLinux) {
-    runner.addCommand(BuildCommand(platform: PlatformType.linux));
+  final result = Process.runSync('uname', ['-m']);
+  final machine = (result.stdout as String).trim();
+  if (machine == 'aarch64') return 'arm64';
+  if (machine == 'x86_64') return 'amd64';
+  return machine;
+}
+
+Future<bool> _hasCommand(String cmd) async {
+  final which = Platform.isWindows ? 'where' : 'command';
+  final args = Platform.isWindows ? [cmd] : ['-v', cmd];
+  final result = await Process.run(which, args);
+  return result.exitCode == 0;
+}
+
+Future<int> _ensureDependencies(String platform) async {
+  switch (platform) {
+    case 'macos':
+      return _ensureMacosDependencies();
+    case 'linux':
+      return _ensureLinuxDependencies();
+    default:
+      return 0;
   }
-  if (Platform.isMacOS) {
-    runner.addCommand(BuildCommand(platform: PlatformType.macos));
+}
+
+Future<int> _ensureMacosDependencies() async {
+  if (await _hasCommand('appdmg')) {
+    stdout.writeln('appdmg already installed, skipping.');
+    return 0;
   }
-  if (args.isEmpty) {
-    args = [Platform.operatingSystem];
+  stdout.writeln('Installing appdmg (DMG creator)...');
+  final result = await Process.run('npm', ['install', '-g', 'appdmg']);
+  if (result.exitCode != 0) {
+    stderr.write(result.stderr);
   }
-  runner.run(args);
+  return result.exitCode;
+}
+
+Future<int> _ensureLinuxDependencies() async {
+  const pkgGroups = <List<String>>[
+    ['ninja-build', 'libgtk-3-dev'],
+    ['libayatana-appindicator3-dev'],
+    ['libsecret-1-dev'],
+    ['locate'],
+    ['rpm', 'patchelf'],
+    ['libfuse2'],
+  ];
+
+  final missingGroups = <List<String>>[];
+  for (final group in pkgGroups) {
+    final missingPkgs = <String>[];
+    for (final pkg in group) {
+      if (!await _isDebianPackageInstalled(pkg)) {
+        missingPkgs.add(pkg);
+      }
+    }
+    if (missingPkgs.isNotEmpty) {
+      missingGroups.add(missingPkgs);
+    }
+  }
+
+  if (missingGroups.isEmpty) {
+    stdout.writeln('All Linux build dependencies already installed, skipping.');
+  } else {
+    stdout.writeln('Updating apt package lists...');
+    final updateExit = await _runLinuxDependencyCommand([
+      'apt-get',
+      'update',
+      '-y',
+    ]);
+    if (updateExit != 0) {
+      stderr.writeln(
+        'apt-get update exited with $updateExit; continuing and verifying '
+        'dependency installation directly.',
+      );
+    }
+
+    for (final missingPkgs in missingGroups) {
+      stdout.writeln(
+        'Installing Linux build dependencies: ${missingPkgs.join(', ')}...',
+      );
+      final installExit = await _installLinuxPackages(missingPkgs);
+      if (installExit != 0) return installExit;
+    }
+  }
+
+  const appimagetool = '/usr/local/bin/appimagetool';
+  if (File(appimagetool).existsSync()) {
+    stdout.writeln('appimagetool already installed, skipping.');
+    return 0;
+  }
+  stdout.writeln('Downloading appimagetool...');
+  final downloadName =
+      'appimagetool-${appImageToolArch(_detectArch())}.AppImage';
+  final dlResult = await Process.run('wget', [
+    '-O',
+    appimagetool,
+    'https://github.com/AppImage/AppImageKit/releases/download/continuous/$downloadName',
+  ]);
+  if (dlResult.exitCode != 0) {
+    stderr.write(dlResult.stderr);
+    return dlResult.exitCode;
+  }
+  await Process.run('chmod', ['+x', appimagetool]);
+  return 0;
+}
+
+String appImageToolArch(String arch) {
+  return arch == 'arm64' ? 'aarch64' : 'x86_64';
+}
+
+/// Ubuntu 24.04 ships libfuse2 under its time64 name, which `dpkg -s libfuse2` cannot see.
+const _debianPackageAliases = <String, List<String>>{
+  'libfuse2': ['libfuse2t64'],
+};
+
+Future<bool> _isDebianPackageInstalled(String pkg) async {
+  for (final name in [pkg, ...?_debianPackageAliases[pkg]]) {
+    final result = await Process.run('dpkg', ['-s', name]);
+    if (result.exitCode == 0 &&
+        (result.stdout as String).contains('Status: install ok installed')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Future<bool> _areDebianPackagesInstalled(List<String> pkgs) async {
+  for (final pkg in pkgs) {
+    if (!await _isDebianPackageInstalled(pkg)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Future<int> _installLinuxPackages(List<String> pkgs) async {
+  final exitCode = await _runLinuxDependencyCommand([
+    'apt-get',
+    'install',
+    '-y',
+    ...pkgs,
+  ]);
+  if (exitCode == 0) return 0;
+
+  if (await _areDebianPackagesInstalled(pkgs)) {
+    stderr.writeln(
+      'apt-get install exited with $exitCode, but all requested packages are '
+      'installed; continuing.',
+    );
+    return 0;
+  }
+
+  return exitCode;
+}
+
+Future<int> _runLinuxDependencyCommand(List<String> command) async {
+  final sudoCommand = [
+    'env',
+    'DEBIAN_FRONTEND=noninteractive',
+    'NEEDRESTART_MODE=a',
+    ...command,
+  ];
+  stdout.writeln('exec: sudo ${sudoCommand.join(' ')}');
+  final result = await Process.start('sudo', sudoCommand);
+  result.stdout.listen((data) {
+    stdout.write(utf8.decode(data));
+  });
+  result.stderr.listen((data) {
+    stderr.write(utf8.decode(data));
+  });
+  final exitCode = await result.exitCode;
+  if (exitCode != 0) {
+    stderr.writeln('Linux dependency command failed with exit code $exitCode.');
+  }
+  return exitCode;
 }

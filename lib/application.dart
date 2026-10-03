@@ -1,201 +1,213 @@
 import 'dart:async';
+import 'dart:io';
 
-import 'package:dynamic_color/dynamic_color.dart';
-import 'package:fl_clash/l10n/l10n.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/window.dart';
+import 'package:fl_clash/bootstrap.dart';
+import 'package:fl_clash/common/system_dns.dart';
+import 'package:fl_clash/icons/icons.dart';
+import 'package:fl_clash/l10n/l10n.dart';
+import 'package:fl_clash/manager/hotkey_manager.dart';
+import 'package:fl_clash/manager/manager.dart';
+import 'package:fl_clash/plugins/app.dart';
+import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/widgets/widgets.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:provider/provider.dart';
+import 'package:fl_clash/widgets/focus.dart';
+import 'package:fl_clash/widgets/keyboard_inset_hold.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'controller.dart';
-import 'models/models.dart';
 import 'pages/pages.dart';
 
-runAppWithPreferences(
-  Widget child, {
-  required AppState appState,
-  required Config config,
-  required ClashConfig clashConfig,
+Widget buildManagerStack({
+  required bool isDesktop,
+  required Future<void> Function(List<ConnectivityResult> results)
+  onConnectivityChanged,
+  required Widget child,
 }) {
-  runApp(MultiProvider(
-    providers: [
-      ChangeNotifierProvider<ClashConfig>(
-        create: (_) => clashConfig,
+  final platformApp = isDesktop
+      ? WindowHeaderContainer(child: child)
+      : VpnManager(child: child);
+  final state = AppStateManager(
+    child: CoreManager(
+      child: ConnectivityManager(
+        onConnectivityChanged: onConnectivityChanged,
+        child: platformApp,
       ),
-      ChangeNotifierProvider<Config>(
-        create: (_) => config,
-      ),
-      ChangeNotifierProxyProvider2<Config, ClashConfig, AppState>(
-        create: (_) => appState,
-        update: (_, config, clashConfig, appState) {
-          appState?.mode = clashConfig.mode;
-          appState?.isCompatible = config.isCompatible;
-          appState?.selectedMap = config.currentSelectedMap;
-          return appState!;
-        },
-      )
-    ],
-    child: child,
-  ));
+    ),
+  );
+  final platformState = isDesktop
+      ? WindowManager(
+          child: TrayManager(
+            child: HotKeyManager(child: ProxyManager(child: state)),
+          ),
+        )
+      : AndroidManager(child: TileManager(child: state));
+  return AppEnvManager(
+    child: LocaleManager(
+      child: StatusManager(child: ThemeManager(child: platformState)),
+    ),
+  );
 }
 
-class Application extends StatefulWidget {
-  const Application({
-    super.key,
-  });
+class Application extends ConsumerStatefulWidget {
+  const Application({super.key});
 
   @override
-  State<Application> createState() => ApplicationState();
+  ConsumerState<Application> createState() => ApplicationState();
 }
 
-class ApplicationState extends State<Application> {
-  late SystemColorSchemes systemColorSchemes;
+const _actionIconTheme = ActionIconThemeData(
+  backButtonIconBuilder: _backButtonIcon,
+  closeButtonIconBuilder: _closeButtonIcon,
+);
+
+Widget _backButtonIcon(BuildContext context) =>
+    GlyphIcon(AppGlyphs.backFor(Theme.of(context).platform));
+
+Widget _closeButtonIcon(BuildContext context) =>
+    const GlyphIcon(AppGlyphs.close);
+
+class ApplicationState extends ConsumerState<Application> {
+  Timer? _autoUpdateProfilesTaskTimer;
+  bool _preHasVpn = false;
 
   final _pageTransitionsTheme = const PageTransitionsTheme(
     builders: <TargetPlatform, PageTransitionsBuilder>{
-      TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.android: commonSharedXPageTransitions,
+      TargetPlatform.windows: commonSharedXPageTransitions,
+      TargetPlatform.linux: commonSharedXPageTransitions,
+      TargetPlatform.macOS: commonSharedXPageTransitions,
     },
   );
 
-  ColorScheme _getAppColorScheme({
-    required Brightness brightness,
-    int? primaryColor,
-    required SystemColorSchemes systemColorSchemes,
-  }) {
-    if (primaryColor != null) {
-      return ColorScheme.fromSeed(
-        seedColor: Color(primaryColor),
-        brightness: brightness,
-      );
-    } else {
-      return systemColorSchemes.getSystemColorSchemeForBrightness(brightness);
-    }
+  ColorScheme _getAppColorScheme({required Brightness brightness}) {
+    return ref.read(genColorSchemeProvider(brightness));
   }
 
   @override
   void initState() {
     super.initState();
-    globalState.appController = AppController(context);
+    SystemNavigator.setFrameworkHandlesBack(true);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) async {
-      final currentContext = globalState.navigatorKey.currentContext;
-      if (currentContext != null) {
-        globalState.appController = AppController(currentContext);
+      if (globalState.navigatorKey.currentContext != null) {
+        await bootstrap.attach();
+      } else {
+        exit(0);
       }
-      await globalState.appController.init();
-      globalState.appController.initLink();
-      _updateGroups();
+      _autoUpdateProfilesTask();
+      _initLink();
+      if (!safeModeBuild) {
+        unawaited(app?.initShortcuts());
+      }
     });
   }
 
-  _buildApp(Widget app) {
-    if (system.isDesktop) {
-      return WindowContainer(
-        child: TrayContainer(
-          child: app,
+  void _initLink() {
+    linkManager.initAppLinksListen((url) async {
+      unawaited(window?.show());
+      final message = currentAppLocalizations.createProfileFromUrlTip(url);
+      final parts = message.split(url);
+      final res = await dialogs.showMessage(
+        title: currentAppLocalizations.addProfile,
+        message: TextSpan(
+          children: [
+            TextSpan(text: parts.first),
+            TextSpan(
+              text: url,
+              style: TextStyle(
+                color: context.colorScheme.primary,
+                decoration: TextDecoration.underline,
+                decorationColor: context.colorScheme.primary,
+              ),
+            ),
+            if (parts.length > 1) TextSpan(text: parts.last),
+          ],
         ),
       );
-    }
-    return AndroidContainer(
-      child: TileContainer(
-        child: app,
-      ),
-    );
-  }
-
-  _updateSystemColorSchemes(
-    ColorScheme? lightDynamic,
-    ColorScheme? darkDynamic,
-  ) {
-    systemColorSchemes = SystemColorSchemes(
-      lightColorScheme: lightDynamic,
-      darkColorScheme: darkDynamic,
-    );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      globalState.appController.updateSystemColorSchemes(systemColorSchemes);
+      if (res != true) return;
+      unawaited(
+        ref.read(profilesActionProvider.notifier).addProfileFormURL(url),
+      );
     });
   }
 
-  _updateGroups() {
-    if (globalState.groupsUpdateTimer != null) {
-      globalState.groupsUpdateTimer?.cancel();
-      globalState.groupsUpdateTimer = null;
+  void _autoUpdateProfilesTask() {
+    _autoUpdateProfilesTaskTimer = Timer(const Duration(minutes: 20), () async {
+      await ref.read(profilesActionProvider.notifier).autoUpdateProfiles();
+      if (!mounted) {
+        return;
+      }
+      _autoUpdateProfilesTask();
+    });
+  }
+
+  Future<void> _handleConnectivityChanged(
+    List<ConnectivityResult> results,
+  ) async {
+    commonPrint.log('connectivityChanged ${results.toString()}');
+    unawaited(systemDnsCoordinator?.resync() ?? Future.value());
+    unawaited(ref.read(systemActionProvider.notifier).updateLocalIp());
+    final hasVpn = results.contains(ConnectivityResult.vpn);
+    if (_preHasVpn == hasVpn) {
+      ref.read(routeTrackerProvider.notifier).bumpHostEpoch();
     }
-    globalState.groupsUpdateTimer ??= Timer.periodic(
-      httpTimeoutDuration,
-      (timer) async {
-        await globalState.appController.updateGroups();
-      },
-    );
+    _preHasVpn = hasVpn;
   }
 
   @override
   Widget build(context) {
-    return AppStateContainer(
-      child: ClashMessageContainer(
-        child: _buildApp(
-          Selector2<AppState, Config, ApplicationSelectorState>(
-            selector: (_, appState, config) => ApplicationSelectorState(
-              locale: config.locale,
-              themeMode: config.themeMode,
-              primaryColor: config.primaryColor,
-            ),
-            builder: (_, state, child) {
-              return DynamicColorBuilder(
-                builder: (lightDynamic, darkDynamic) {
-                  _updateSystemColorSchemes(lightDynamic, darkDynamic);
-                  return MaterialApp(
-                    navigatorKey: globalState.navigatorKey,
-                    localizationsDelegates: const [
-                      AppLocalizations.delegate,
-                      GlobalMaterialLocalizations.delegate,
-                      GlobalCupertinoLocalizations.delegate,
-                      GlobalWidgetsLocalizations.delegate
-                    ],
-                    title: appName,
-                    locale: other.getLocaleForString(state.locale),
-                    supportedLocales:
-                        AppLocalizations.delegate.supportedLocales,
-                    themeMode: state.themeMode,
-                    theme: ThemeData(
-                      useMaterial3: true,
-                      pageTransitionsTheme: _pageTransitionsTheme,
-                      colorScheme: _getAppColorScheme(
-                        brightness: Brightness.light,
-                        systemColorSchemes: systemColorSchemes,
-                        primaryColor: state.primaryColor,
-                      ),
-                    ),
-                    darkTheme: ThemeData(
-                      useMaterial3: true,
-                      pageTransitionsTheme: _pageTransitionsTheme,
-                      colorScheme: _getAppColorScheme(
-                        brightness: Brightness.dark,
-                        systemColorSchemes: systemColorSchemes,
-                        primaryColor: state.primaryColor,
-                      ),
-                    ),
-                    home: child,
-                  );
-                },
-              );
-            },
-            child: const HomePage(),
-          ),
-        ),
-      ),
+    return Consumer(
+      builder: (_, ref, child) {
+        final locale = ref.watch(
+          appSettingProvider.select((state) => state.locale),
+        );
+        final themeProps = ref.watch(themeSettingProvider);
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          navigatorKey: globalState.navigatorKey,
+          onNavigationNotification: (_) => true,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates,
+          ],
+          builder: (context, child) {
+            return buildManagerStack(
+              isDesktop: system.isDesktop,
+              onConnectivityChanged: _handleConnectivityChanged,
+              child: RemoteFocusAdapter(enabled: system.isTV, child: child!),
+            );
+          },
+          scrollBehavior: const BaseScrollBehavior(),
+          title: appName,
+          locale: getLocaleForString(locale),
+          supportedLocales: AppLocalizations.delegate.supportedLocales,
+          themeMode: themeProps.themeMode,
+          theme: ThemeData(
+            useMaterial3: true,
+            pageTransitionsTheme: _pageTransitionsTheme,
+            actionIconTheme: _actionIconTheme,
+            colorScheme: _getAppColorScheme(brightness: Brightness.light),
+          ).withAppShapes,
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            pageTransitionsTheme: _pageTransitionsTheme,
+            actionIconTheme: _actionIconTheme,
+            colorScheme: _getAppColorScheme(brightness: Brightness.dark),
+          ).withAppShapes,
+          home: KeyboardInsetHold(child: child!),
+        );
+      },
+      child: const HomePage(),
     );
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() {
     linkManager.destroy();
-    await globalState.appController.savePreferences();
+    _autoUpdateProfilesTaskTimer?.cancel();
     super.dispose();
   }
 }

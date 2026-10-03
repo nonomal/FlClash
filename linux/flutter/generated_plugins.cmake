@@ -6,13 +6,15 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_linux
   gtk
-  screen_retriever
-  tray_manager
+  screen_retriever_linux
+  tray
   url_launcher_linux
-  window_manager
+  wifi_ssid
+  window
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

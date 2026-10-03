@@ -1,10 +1,18 @@
+//go:build !(android && cgo)
+
 package main
 
-import "C"
 import (
 	"fmt"
+	"os"
 )
 
 func main() {
-	fmt.Println("init clash")
+	args := os.Args
+	if len(args) <= 1 {
+		fmt.Fprintln(os.Stderr, "Arguments error")
+		os.Exit(1)
+	}
+	go exitOnTermination()
+	startServer(args[1])
 }

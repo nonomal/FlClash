@@ -6,119 +6,167 @@
 #include <WinInet.h>
 #include <Ras.h>
 #include <RasError.h>
+#include <algorithm>
+#include <string>
 #include <vector>
-#include <iostream>
 
 #pragma comment(lib, "wininet")
 #pragma comment(lib, "Rasapi32")
-
-// For getPlatformVersion; remove unless needed for your plugin implementation.
-#include <VersionHelpers.h>
 
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 
 #include <memory>
-#include <sstream>
 
-void startProxy(const int port)
+namespace
 {
-  INTERNET_PER_CONN_OPTION_LIST list;
-  DWORD dwBufSize = sizeof(list);
-  list.dwSize = sizeof(list);
-  list.pszConnection = nullptr;
-  auto url = "127.0.0.1:" + std::to_string(port);
-  auto wUrl = std::wstring(url.begin(), url.end());
-  auto fullAddr = new WCHAR[url.length() + 1];
-  wcscpy_s(fullAddr, url.length() + 1, wUrl.c_str());
-  list.dwOptionCount = 2;
-  list.pOptions = new INTERNET_PER_CONN_OPTION[2];
 
-  if (!list.pOptions)
+constexpr int kMinProxyPort = 1;
+constexpr int kMaxProxyPort = 65535;
+
+std::wstring Utf8ToWide(const std::string& value)
+{
+  if (value.empty())
   {
-    return;
+    return {};
   }
-
-  list.pOptions[0].dwOption = INTERNET_PER_CONN_FLAGS;
-  list.pOptions[0].Value.dwValue = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
-
-  list.pOptions[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
-  list.pOptions[1].Value.pszValue = fullAddr;
-
-  InternetSetOption(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, dwBufSize);
-
-  RASENTRYNAME entry;
-  entry.dwSize = sizeof(entry);
-  std::vector<RASENTRYNAME> entries;
-  DWORD size = sizeof(entry), count;
-  LPRASENTRYNAME entryAddr = &entry;
-  auto ret = RasEnumEntries(nullptr, nullptr, entryAddr, &size, &count);
-  if (ret == ERROR_BUFFER_TOO_SMALL)
+  const int size = MultiByteToWideChar(
+      CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
+  if (size <= 0)
   {
-    entries.resize(count);
-    entries[0].dwSize = sizeof(RASENTRYNAME);
-    entryAddr = entries.data();
-    ret = RasEnumEntries(nullptr, nullptr, entryAddr, &size, &count);
+    return std::wstring(value.begin(), value.end());
   }
-  if (ret != ERROR_SUCCESS)
-  {
-    return;
-  }
-  for (DWORD i = 0; i < count; i++)
-  {
-    list.pszConnection = entryAddr[i].szEntryName;
-    InternetSetOption(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, dwBufSize);
-  }
-  delete[] list.pOptions;
-  InternetSetOption(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
-  InternetSetOption(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+  std::wstring result(size, L'\0');
+  MultiByteToWideChar(
+      CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()),
+      result.data(), size);
+  return result;
 }
 
-void stopProxy()
+std::wstring BuildBypassList(const flutter::EncodableList& bypassDomain)
 {
-  INTERNET_PER_CONN_OPTION_LIST list;
-  DWORD dwBufSize = sizeof(list);
+  std::wstring bypassList;
+  for (const auto& domain : bypassDomain)
+  {
+    const auto& value = std::get<std::string>(domain);
+    if (!bypassList.empty())
+    {
+      bypassList += L";";
+    }
+    bypassList += Utf8ToWide(value);
+  }
+  return bypassList;
+}
 
+bool IsStringList(const flutter::EncodableList& values)
+{
+  return std::all_of(
+      values.begin(), values.end(), [](const auto& value)
+      {
+        return std::holds_alternative<std::string>(value);
+      });
+}
+
+bool SetOptionsForConnection(
+    INTERNET_PER_CONN_OPTION_LIST& list,
+    LPTSTR connection)
+{
+  list.pszConnection = connection;
+  return InternetSetOption(
+      nullptr,
+      INTERNET_OPTION_PER_CONNECTION_OPTION,
+      &list,
+      sizeof(list)) != FALSE;
+}
+
+bool ApplyOptionsToConnections(INTERNET_PER_CONN_OPTION_LIST& list)
+{
+  bool success = SetOptionsForConnection(list, nullptr);
+
+  DWORD size = 0;
+  DWORD count = 0;
+  auto ret = RasEnumEntries(nullptr, nullptr, nullptr, &size, &count);
+  if (ret == ERROR_BUFFER_TOO_SMALL && count > 0)
+  {
+    std::vector<RASENTRYNAME> entries(count);
+    for (auto& entry : entries)
+    {
+      entry.dwSize = sizeof(RASENTRYNAME);
+    }
+    ret = RasEnumEntries(nullptr, nullptr, entries.data(), &size, &count);
+    if (ret == ERROR_SUCCESS)
+    {
+      for (DWORD i = 0; i < count; i++)
+      {
+        success = SetOptionsForConnection(list, entries[i].szEntryName) && success;
+      }
+    }
+    else
+    {
+      success = false;
+    }
+  }
+  else if (ret != ERROR_SUCCESS)
+  {
+    success = false;
+  }
+
+  return success;
+}
+
+bool NotifySettingsChanged()
+{
+  const bool changed = InternetSetOption(
+      nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0) != FALSE;
+  const bool refreshed = InternetSetOption(
+      nullptr, INTERNET_OPTION_REFRESH, nullptr, 0) != FALSE;
+  return changed && refreshed;
+}
+
+bool startProxy(const int port, const flutter::EncodableList& bypassDomain)
+{
+  auto url = Utf8ToWide("127.0.0.1:" + std::to_string(port));
+  auto bypassList = BuildBypassList(bypassDomain);
+  std::vector<INTERNET_PER_CONN_OPTION> options(3);
+
+  INTERNET_PER_CONN_OPTION_LIST list = {};
   list.dwSize = sizeof(list);
-  list.pszConnection = nullptr;
+  list.dwOptionCount = static_cast<DWORD>(options.size());
+  list.pOptions = options.data();
+
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+  options[0].Value.dwValue = PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY;
+
+  options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+  options[1].Value.pszValue = url.data();
+
+  options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+  options[2].Value.pszValue = bypassList.data();
+
+  const bool optionsApplied = ApplyOptionsToConnections(list);
+  const bool settingsNotified = NotifySettingsChanged();
+  return optionsApplied && settingsNotified;
+}
+
+bool stopProxy()
+{
+  std::vector<INTERNET_PER_CONN_OPTION> options(1);
+
+  INTERNET_PER_CONN_OPTION_LIST list = {};
+  list.dwSize = sizeof(list);
   list.dwOptionCount = 1;
-  list.pOptions = new INTERNET_PER_CONN_OPTION[1];
-  if (nullptr == list.pOptions)
-  {
-    return;
-  }
-  list.pOptions[0].dwOption = INTERNET_PER_CONN_FLAGS;
-  list.pOptions[0].Value.dwValue = PROXY_TYPE_DIRECT;
+  list.pOptions = options.data();
 
-  InternetSetOption(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, dwBufSize);
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+  options[0].Value.dwValue = PROXY_TYPE_DIRECT;
 
-  RASENTRYNAME entry;
-  entry.dwSize = sizeof(entry);
-  std::vector<RASENTRYNAME> entries;
-  DWORD size = sizeof(entry), count;
-  LPRASENTRYNAME entryAddr = &entry;
-  auto ret = RasEnumEntries(nullptr, nullptr, entryAddr, &size, &count);
-  if (ret == ERROR_BUFFER_TOO_SMALL)
-  {
-    entries.resize(count);
-    entries[0].dwSize = sizeof(RASENTRYNAME);
-    entryAddr = entries.data();
-    ret = RasEnumEntries(nullptr, nullptr, entryAddr, &size, &count);
-  }
-  if (ret != ERROR_SUCCESS)
-  {
-    return;
-  }
-  for (DWORD i = 0; i < count; i++)
-  {
-    list.pszConnection = entryAddr[i].szEntryName;
-    InternetSetOption(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, dwBufSize);
-  }
-  delete[] list.pOptions;
-  InternetSetOption(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
-  InternetSetOption(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+  const bool optionsApplied = ApplyOptionsToConnections(list);
+  const bool settingsNotified = NotifySettingsChanged();
+  return optionsApplied && settingsNotified;
 }
+
+}  // namespace
 
 namespace proxy
 {
@@ -132,7 +180,7 @@ namespace proxy
             registrar->messenger(), "proxy",
             &flutter::StandardMethodCodec::GetInstance());
 
-    auto plugin = std::make_unique<ProxyPlugin>();
+    auto plugin = std::make_unique<ProxyPlugin>(registrar);
 
     channel->SetMethodCallHandler(
         [plugin_pointer = plugin.get()](const auto &call, auto result)
@@ -143,25 +191,87 @@ namespace proxy
     registrar->AddPlugin(std::move(plugin));
   }
 
-  ProxyPlugin::ProxyPlugin() {}
+  ProxyPlugin::ProxyPlugin(flutter::PluginRegistrarWindows* registrar)
+      : registrar_(registrar)
+  {
+    window_proc_id_ = registrar_->RegisterTopLevelWindowProcDelegate(
+        [this](HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+        {
+          return HandleWindowProc(window, message, wparam, lparam);
+        });
+  }
 
-  ProxyPlugin::~ProxyPlugin() {}
+  ProxyPlugin::~ProxyPlugin()
+  {
+    if (registrar_ != nullptr)
+    {
+      registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
+    }
+  }
+
+  bool ProxyPlugin::IsSessionEnding(UINT message, WPARAM wparam)
+  {
+    return message == WM_ENDSESSION && wparam != FALSE;
+  }
+
+  // Shutting Windows down kills the process without running the Dart exit path,
+  // so the setting survives into a boot with nothing listening behind it.
+  std::optional<LRESULT> ProxyPlugin::HandleWindowProc(
+      HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+  {
+    if (proxy_applied_ && IsSessionEnding(message, wparam))
+    {
+      proxy_applied_ = !stopProxy();
+    }
+    return std::nullopt;
+  }
 
   void ProxyPlugin::HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue> &method_call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result)
   {
-    if (method_call.method_name().compare("StopProxy") == 0)
+    if (method_call.method_name() == "StopProxy")
     {
-      stopProxy();
-      result->Success(true);
+      const bool stopped = stopProxy();
+      proxy_applied_ = proxy_applied_ && !stopped;
+      result->Success(stopped);
     }
-    else if (method_call.method_name().compare("StartProxy") == 0)
+    else if (method_call.method_name() == "StartProxy")
     {
       auto *arguments = std::get_if<flutter::EncodableMap>(method_call.arguments());
-      auto port = std::get<int>(arguments->at(flutter::EncodableValue("port")));
-      startProxy(port);
-      result->Success(true);
+      if (arguments == nullptr)
+      {
+        result->Error("bad_args", "StartProxy requires argument map");
+        return;
+      }
+      auto portIt = arguments->find(flutter::EncodableValue("port"));
+      auto bypassDomainIt = arguments->find(flutter::EncodableValue("bypassDomain"));
+      if (portIt == arguments->end() || bypassDomainIt == arguments->end())
+      {
+        result->Error("bad_args", "StartProxy requires port and bypassDomain");
+        return;
+      }
+      auto *port = std::get_if<int>(&portIt->second);
+      auto *bypassDomain = std::get_if<flutter::EncodableList>(&bypassDomainIt->second);
+      if (port == nullptr || bypassDomain == nullptr)
+      {
+        result->Error("bad_args", "StartProxy argument types are invalid");
+        return;
+      }
+      if (*port < kMinProxyPort || *port > kMaxProxyPort)
+      {
+        result->Error("bad_args", "StartProxy port must be between 1 and 65535");
+        return;
+      }
+      if (!IsStringList(*bypassDomain))
+      {
+        result->Error(
+            "bad_args", "StartProxy bypassDomain must contain only strings");
+        return;
+      }
+      // A start that reports failure can still have written the setting.
+      proxy_applied_ = true;
+      result->Success(startProxy(*port, *bypassDomain));
     }
     else
     {

@@ -1,403 +1,441 @@
 package main
 
-import "C"
 import (
+	b "bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/adapter/inbound"
-	ap "github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/component/auth"
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/resolver"
+	"github.com/metacubex/mihomo/component/updater"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/constant/features"
+	cp "github.com/metacubex/mihomo/constant/provider"
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/hub/route"
 	"github.com/metacubex/mihomo/listener"
+	authStore "github.com/metacubex/mihomo/listener/auth"
+	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/log"
+	rp "github.com/metacubex/mihomo/rules/provider"
 	"github.com/metacubex/mihomo/tunnel"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"syscall"
-	"time"
 )
 
-type healthCheckSchema struct {
-	Enable         bool   `provider:"enable"`
-	URL            string `provider:"url"`
-	Interval       int    `provider:"interval"`
-	TestTimeout    int    `provider:"timeout,omitempty"`
-	Lazy           bool   `provider:"lazy,omitempty"`
-	ExpectedStatus string `provider:"expected-status,omitempty"`
-}
+const (
+	delayTestConcurrency    = 50
+	defaultTestURL          = "https://www.gstatic.com/generate_204"
+	defaultDelayTestTimeout = 5 * time.Second
+)
 
-type proxyProviderSchema struct {
-	Type          string `provider:"type"`
-	Path          string `provider:"path,omitempty"`
-	URL           string `provider:"url,omitempty"`
-	Proxy         string `provider:"proxy,omitempty"`
-	Interval      int    `provider:"interval,omitempty"`
-	Filter        string `provider:"filter,omitempty"`
-	ExcludeFilter string `provider:"exclude-filter,omitempty"`
-	ExcludeType   string `provider:"exclude-type,omitempty"`
-	DialerProxy   string `provider:"dialer-proxy,omitempty"`
+var (
+	configMu      sync.Mutex
+	currentConfig *config.Config
 
-	HealthCheck healthCheckSchema   `provider:"health-check,omitempty"`
-	Override    ap.OverrideSchema   `provider:"override,omitempty"`
-	Header      map[string][]string `provider:"header,omitempty"`
-}
+	// selectMu serialises proxy-group selection writes. mihomo's Selector.Set
+	// writes s.selected with no lock of its own, so something has to; configMu
+	// used to, which made a tap on a node wait out a whole config apply,
+	// provider downloads included, for a write that touches one field.
+	// patchSelectGroup takes it under configMu, fixing the order as
+	// configMu -> selectMu.
+	selectMu sync.Mutex
 
-type ruleProviderSchema struct {
-	Type     string `provider:"type"`
-	Behavior string `provider:"behavior"`
-	Path     string `provider:"path,omitempty"`
-	URL      string `provider:"url,omitempty"`
-	Proxy    string `provider:"proxy,omitempty"`
-	Format   string `provider:"format,omitempty"`
-	Interval int    `provider:"interval,omitempty"`
-}
+	isInit     atomic.Bool
+	isRunning  atomic.Bool
+	sdkVersion atomic.Int32
+	testURL    atomic.Pointer[string]
 
-type GenerateConfigParams struct {
-	ProfilePath  *string           `json:"profile-path"`
-	Config       *config.RawConfig `json:"config" `
-	IsPatch      *bool             `json:"is-patch"`
-	IsCompatible *bool             `json:"is-compatible"`
-}
+	delayTestSlots = make(chan struct{}, delayTestConcurrency)
 
-type ChangeProxyParams struct {
-	GroupName *string `json:"group-name"`
-	ProxyName *string `json:"proxy-name"`
-}
+	debugStderr = os.Getenv("FLCLASH_CORE_DEBUG") != ""
+)
 
-type TestDelayParams struct {
-	ProxyName string `json:"proxy-name"`
-	Timeout   int64  `json:"timeout"`
-}
+var (
+	errConfigNotApplied    = errors.New("config is not applied")
+	errNotExternalProvider = errors.New("not external provider")
+)
 
-type Delay struct {
-	Name  string `json:"name"`
-	Value int32  `json:"value"`
-}
-
-type Process struct {
-	Id       int64              `json:"id"`
-	Metadata *constant.Metadata `json:"metadata"`
-}
-
-type ProcessMapItem struct {
-	Id    int64  `json:"id"`
-	Value string `json:"value"`
-}
-
-type Now struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type ExternalProvider struct {
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	VehicleType string    `json:"vehicle-type"`
-	UpdateAt    time.Time `json:"update-at"`
-}
-
-func restartExecutable(execPath string) {
-	var err error
-	executor.Shutdown()
-	if runtime.GOOS == "windows" {
-		cmd := exec.Command(execPath, os.Args[1:]...)
-		log.Infoln("restarting: %q %q", execPath, os.Args[1:])
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Start()
-		if err != nil {
-			log.Fatalln("restarting: %s", err)
+func externalProviders() map[string]cp.Provider {
+	eps := make(map[string]cp.Provider)
+	for n, p := range tunnel.ProvidersSnapshot() {
+		if p.VehicleType() != cp.Compatible {
+			eps[n] = p
 		}
-
-		os.Exit(0)
 	}
+	for n, p := range tunnel.RuleProvidersSnapshot() {
+		if p.VehicleType() != cp.Compatible {
+			eps[n] = p
+		}
+	}
+	return eps
+}
 
-	log.Infoln("restarting: %q %q", execPath, os.Args[1:])
-	err = syscall.Exec(execPath, os.Args, os.Environ())
-	if err != nil {
-		log.Fatalln("restarting: %s", err)
+func lookupExternalProvider(name string) (cp.Provider, bool) {
+	if p, exist := tunnel.RuleProvidersSnapshot()[name]; exist && p.VehicleType() != cp.Compatible {
+		return p, true
+	}
+	if p, exist := tunnel.ProvidersSnapshot()[name]; exist && p.VehicleType() != cp.Compatible {
+		return p, true
+	}
+	return nil, false
+}
+
+func toExternalProvider(p cp.Provider) (*ExternalProvider, error) {
+	switch typed := p.(type) {
+	case *provider.ProxySetProvider:
+		return &ExternalProvider{
+			Name:             typed.Name(),
+			Type:             typed.Type().String(),
+			VehicleType:      typed.VehicleType().String(),
+			Count:            typed.Count(),
+			UpdateAt:         typed.UpdatedAt(),
+			Path:             typed.Vehicle().Path(),
+			SubscriptionInfo: typed.GetSubscriptionInfo(),
+		}, nil
+	case *rp.RuleSetProvider:
+		return &ExternalProvider{
+			Name:        typed.Name(),
+			Type:        typed.Type().String(),
+			VehicleType: typed.VehicleType().String(),
+			Count:       typed.Count(),
+			UpdateAt:    typed.UpdatedAt(),
+			Path:        typed.Vehicle().Path(),
+		}, nil
+	default:
+		return nil, errNotExternalProvider
 	}
 }
 
-func readFile(path string) ([]byte, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return data, err
-}
-
-func removeFile(path string) error {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
+func sideUpdateExternalProvider(p cp.Provider, data []byte) error {
+	switch typed := p.(type) {
+	case *provider.ProxySetProvider:
+		_, _, err := typed.SideUpdate(data)
 		return err
-	}
-	err = os.Remove(absPath)
-	if err != nil {
+	case *rp.RuleSetProvider:
+		_, _, err := typed.SideUpdate(data)
 		return err
-	}
-
-	return nil
-}
-
-func getRawConfigWithPath(path *string) *config.RawConfig {
-	if path == nil {
-		return config.DefaultRawConfig()
-	} else {
-		bytes, err := readFile(*path)
-		if err != nil {
-			log.Errorln("getProfile readFile error %v", err)
-			return config.DefaultRawConfig()
-		}
-		prof, err := config.UnmarshalRawConfig(bytes)
-		if err != nil {
-			log.Errorln("getProfile UnmarshalRawConfig error %v", err)
-			return config.DefaultRawConfig()
-		}
-		return prof
+	default:
+		return errNotExternalProvider
 	}
 }
 
-func decorationConfig(profilePath *string, cfg config.RawConfig, compatible bool) *config.RawConfig {
-	prof := getRawConfigWithPath(profilePath)
-	overwriteConfig(prof, cfg, compatible)
-	return prof
-}
-
-func Reduce[T any, U any](s []T, initVal U, f func(U, T) U) U {
-	for _, v := range s {
-		initVal = f(initVal, v)
+func updateListeners(cfg *config.Config) {
+	if cfg == nil || !isRunning.Load() {
+		return
 	}
-	return initVal
-}
+	general := cfg.General
+	listener.PatchInboundListeners(cfg.Listeners, tunnel.Tunnel, true)
 
-func Map[T, U any](slice []T, fn func(T) U) []U {
-	result := make([]U, len(slice))
-	for i, v := range slice {
-		result[i] = fn(v)
-	}
-	return result
-}
-
-func replaceFromMap(s string, m map[string]string) string {
-	for k, v := range m {
-		s = strings.ReplaceAll(s, k, v)
-	}
-	return s
-}
-
-func removeDuplicateFromSlice[T any](slice []T) []T {
-	result := make([]T, 0)
-	seen := make(map[any]struct{})
-	for _, value := range slice {
-		if _, ok := seen[value]; !ok {
-			result = append(result, value)
-			seen[value] = struct{}{}
-		}
-	}
-	return result
-}
-
-func generateProxyGroupAndRule(proxyGroup *[]map[string]any, rule *[]string) {
-	var replacements = map[string]string{}
-	var selectArr []map[string]any
-	var urlTestArr []map[string]any
-	var fallbackArr []map[string]any
-	for _, group := range *proxyGroup {
-		switch group["type"] {
-		case "select":
-			selectArr = append(selectArr, group)
-			replacements[group["name"].(string)] = "Proxy"
-			break
-		case "url-test":
-			urlTestArr = append(urlTestArr, group)
-			replacements[group["name"].(string)] = "Auto"
-			break
-		case "fallback":
-			fallbackArr = append(fallbackArr, group)
-			replacements[group["name"].(string)] = "Fallback"
-			break
-		default:
-			break
-		}
-	}
-
-	ProxyProxies := Reduce(selectArr, []string{}, func(res []string, cur map[string]any) []string {
-		if cur["proxies"] == nil {
-			return res
-		}
-		for _, proxyName := range cur["proxies"].([]interface{}) {
-			if str, ok := proxyName.(string); ok {
-				str = replaceFromMap(str, replacements)
-				if str != "Proxy" {
-					res = append(res, str)
-				}
-			}
-		}
-		return res
-	})
-
-	ProxyProxies = removeDuplicateFromSlice(ProxyProxies)
-
-	AutoProxies := Reduce(urlTestArr, []string{}, func(res []string, cur map[string]any) []string {
-		if cur["proxies"] == nil {
-			return res
-		}
-		for _, proxyName := range cur["proxies"].([]interface{}) {
-			if str, ok := proxyName.(string); ok {
-				str = replaceFromMap(str, replacements)
-				if str != "Auto" {
-					res = append(res, str)
-				}
-			}
-		}
-		return res
-	})
-
-	AutoProxies = removeDuplicateFromSlice(AutoProxies)
-
-	FallbackProxies := Reduce(fallbackArr, []string{}, func(res []string, cur map[string]any) []string {
-		if cur["proxies"] == nil {
-			return res
-		}
-		for _, proxyName := range cur["proxies"].([]interface{}) {
-			if str, ok := proxyName.(string); ok {
-				str = replaceFromMap(str, replacements)
-				if str != "Fallback" {
-					res = append(res, str)
-				}
-			}
-		}
-		return res
-	})
-
-	FallbackProxies = removeDuplicateFromSlice(FallbackProxies)
-
-	var computedProxyGroup []map[string]any
-
-	if len(ProxyProxies) > 0 {
-		computedProxyGroup = append(computedProxyGroup,
-			map[string]any{
-				"name":    "Proxy",
-				"type":    "select",
-				"proxies": ProxyProxies,
-			})
-	}
-
-	if len(AutoProxies) > 0 {
-		computedProxyGroup = append(computedProxyGroup,
-			map[string]any{
-				"name":    "Auto",
-				"type":    "url-test",
-				"proxies": AutoProxies,
-			})
-	}
-
-	if len(FallbackProxies) > 0 {
-		computedProxyGroup = append(computedProxyGroup,
-			map[string]any{
-				"name":    "Fallback",
-				"type":    "fallback",
-				"proxies": FallbackProxies,
-			})
-	}
-
-	computedRule := Map(*rule, func(value string) string {
-		return replaceFromMap(value, replacements)
-	})
-
-	*proxyGroup = computedProxyGroup
-	*rule = computedRule
-}
-
-func overwriteConfig(targetConfig *config.RawConfig, patchConfig config.RawConfig, compatible bool) {
-	targetConfig.ExternalController = patchConfig.ExternalController
-	targetConfig.ExternalUI = ""
-	targetConfig.Interface = ""
-	targetConfig.ExternalUIURL = ""
-	targetConfig.TCPConcurrent = patchConfig.TCPConcurrent
-	targetConfig.UnifiedDelay = patchConfig.UnifiedDelay
-	targetConfig.GeodataMode = false
-	targetConfig.IPv6 = patchConfig.IPv6
-	targetConfig.LogLevel = patchConfig.LogLevel
-	targetConfig.Port = 0
-	targetConfig.SocksPort = 0
-	targetConfig.MixedPort = patchConfig.MixedPort
-	targetConfig.FindProcessMode = patchConfig.FindProcessMode
-	targetConfig.AllowLan = patchConfig.AllowLan
-	targetConfig.Mode = patchConfig.Mode
-	targetConfig.Tun.Enable = patchConfig.Tun.Enable
-	targetConfig.Tun.Device = patchConfig.Tun.Device
-	//targetConfig.Tun.DNSHijack = patchConfig.Tun.DNSHijack
-	//targetConfig.Tun.Stack = patchConfig.Tun.Stack
-	targetConfig.GeodataLoader = patchConfig.GeodataLoader
-	targetConfig.Profile.StoreSelected = false
-	if targetConfig.DNS.Enable == false {
-		targetConfig.DNS = patchConfig.DNS
-	}
-	//if runtime.GOOS == "android" {
-	//	targetConfig.DNS.NameServer = append(targetConfig.DNS.NameServer, "dhcp://"+dns.SystemDNSPlaceholder)
-	//} else if runtime.GOOS == "windows" {
-	//	targetConfig.DNS.NameServer = append(targetConfig.DNS.NameServer, dns.SystemDNSPlaceholder)
-	//}
-	if compatible == false {
-		targetConfig.ProxyProvider = make(map[string]map[string]any)
-		targetConfig.RuleProvider = make(map[string]map[string]any)
-		generateProxyGroupAndRule(&targetConfig.ProxyGroup, &targetConfig.Rule)
-	}
-}
-
-func patchConfig(general *config.General) {
-	log.Infoln("[Apply] patch")
-	route.ReStartServer(general.ExternalController)
 	listener.SetAllowLan(general.AllowLan)
 	inbound.SetSkipAuthPrefixes(general.SkipAuthPrefixes)
 	inbound.SetAllowedIPs(general.LanAllowedIPs)
 	inbound.SetDisAllowedIPs(general.LanDisAllowedIPs)
+
 	listener.SetBindAddress(general.BindAddress)
-	tunnel.SetSniffing(general.Sniffing)
-	tunnel.SetFindProcessMode(general.FindProcessMode)
-	dialer.SetTcpConcurrent(general.TCPConcurrent)
-	dialer.DefaultInterface.Store(general.Interface)
-	adapter.UnifiedDelay.Store(general.UnifiedDelay)
 	listener.ReCreateHTTP(general.Port, tunnel.Tunnel)
 	listener.ReCreateSocks(general.SocksPort, tunnel.Tunnel)
 	listener.ReCreateRedir(general.RedirPort, tunnel.Tunnel)
-	listener.ReCreateAutoRedir(general.EBpf.AutoRedir, tunnel.Tunnel)
 	listener.ReCreateTProxy(general.TProxyPort, tunnel.Tunnel)
-	listener.ReCreateTun(general.Tun, tunnel.Tunnel)
 	listener.ReCreateMixed(general.MixedPort, tunnel.Tunnel)
 	listener.ReCreateShadowSocks(general.ShadowSocksConfig, tunnel.Tunnel)
 	listener.ReCreateVmess(general.VmessConfig, tunnel.Tunnel)
 	listener.ReCreateTuic(general.TuicServer, tunnel.Tunnel)
-	tunnel.SetMode(general.Mode)
-	log.SetLevel(general.LogLevel)
-
-	resolver.DisableIPv6 = !general.IPv6
+	if !features.Android {
+		listener.ReCreateTun(general.Tun, tunnel.Tunnel)
+	}
 }
 
-func applyConfig(isPatch bool) {
-	cfg, err := config.ParseRawConfig(currentConfig)
-	if err != nil {
-		cfg, _ = config.ParseRawConfig(config.DefaultRawConfig())
+func patchSelectGroup(mapping map[string]string) {
+	selectMu.Lock()
+	defer selectMu.Unlock()
+	for name, proxy := range tunnel.AllProxies() {
+		outbound, ok := proxy.(*adapter.Proxy)
+		if !ok {
+			continue
+		}
+
+		selector, ok := outbound.ProxyAdapter.(outboundgroup.SelectAble)
+		if !ok {
+			continue
+		}
+
+		selected, exist := mapping[name]
+		if !exist {
+			continue
+		}
+
+		selector.ForceSet(selected)
 	}
-	if isPatch {
-		patchConfig(cfg.General)
-	} else {
-		executor.Shutdown()
-		runtime.GC()
-		hub.UltraApplyConfig(cfg, true)
+}
+
+func defaultSetupParams() *SetupParams {
+	return &SetupParams{
+		TestURL:     defaultTestURL,
+		SelectedMap: map[string]string{},
+	}
+}
+
+func setTestURL(url string) {
+	if url == "" {
+		return
+	}
+	constant.DefaultTestURL = url
+	testURL.Store(&url)
+}
+
+func currentTestURL() string {
+	if url := testURL.Load(); url != nil && *url != "" {
+		return *url
+	}
+	return defaultTestURL
+}
+
+func acquireDelayTestSlot(ctx context.Context) bool {
+	select {
+	case delayTestSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func releaseDelayTestSlot() {
+	<-delayTestSlots
+}
+
+func routeConfig(cfg *config.Config) *route.Config {
+	controller := cfg.Controller
+	routeCfg := &route.Config{
+		Addr:        controller.ExternalController,
+		TLSAddr:     controller.ExternalControllerTLS,
+		UnixAddr:    controller.ExternalControllerUnix,
+		PipeAddr:    controller.ExternalControllerPipe,
+		RoutingMark: controller.ExternalControllerRoutingMark,
+		Secret:      controller.Secret,
+		DohServer:   controller.ExternalDohServer,
+		IsDebug:     cfg.General.LogLevel == log.DEBUG,
+		Cors: route.Cors{
+			AllowOrigins:        controller.Cors.AllowOrigins,
+			AllowPrivateNetwork: controller.Cors.AllowPrivateNetwork,
+		},
+	}
+	if cfg.TLS != nil {
+		routeCfg.Certificate = cfg.TLS.Certificate
+		routeCfg.PrivateKey = cfg.TLS.PrivateKey
+		routeCfg.ClientAuthType = cfg.TLS.ClientAuthType
+		routeCfg.ClientAuthCert = cfg.TLS.ClientAuthCert
+		routeCfg.EchKey = cfg.TLS.EchKey
+	}
+	return routeCfg
+}
+
+func patchTun(target *LC.Tun, params *tunSchema) {
+	target.Enable = params.Enable
+	if params.AutoRoute != nil {
+		target.AutoRoute = *params.AutoRoute
+	}
+	if params.Device != nil {
+		target.Device = *params.Device
+	}
+	if params.RouteAddress != nil {
+		target.RouteAddress = *params.RouteAddress
+	}
+	if params.DNSHijack != nil {
+		target.DNSHijack = *params.DNSHijack
+	}
+	if params.Stack != nil {
+		target.Stack = *params.Stack
+	}
+}
+
+func updateConfig(params *UpdateParams) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if currentConfig == nil {
+		return errConfigNotApplied
+	}
+
+	general := currentConfig.General
+	if params.MixedPort != nil {
+		general.MixedPort = *params.MixedPort
+	}
+	if params.AllowLan != nil {
+		general.AllowLan = *params.AllowLan
+	}
+	if params.FindProcessMode != nil {
+		general.FindProcessMode = *params.FindProcessMode
+		tunnel.SetFindProcessMode(general.FindProcessMode)
+	}
+	if params.TCPConcurrent != nil {
+		general.TCPConcurrent = *params.TCPConcurrent
+		dialer.SetTcpConcurrent(general.TCPConcurrent)
+	}
+	if params.UnifiedDelay != nil {
+		general.UnifiedDelay = *params.UnifiedDelay
+		adapter.UnifiedDelay.Store(general.UnifiedDelay)
+	}
+	// IPv6 belongs with mode: turning it on moves a direct dial to another exit address.
+	routeChanged := false
+	if params.Mode != nil {
+		routeChanged = routeChanged || general.Mode != *params.Mode
+		general.Mode = *params.Mode
+		tunnel.SetMode(general.Mode)
+	}
+	if params.LogLevel != nil {
+		general.LogLevel = *params.LogLevel
+		log.SetLevel(general.LogLevel)
+	}
+	if params.IPv6 != nil {
+		routeChanged = routeChanged || general.IPv6 != *params.IPv6
+		general.IPv6 = *params.IPv6
+		resolver.DisableIPv6 = !general.IPv6
+	}
+	if params.Tun != nil {
+		patchTun(&general.Tun, params.Tun)
+	}
+	if params.ExternalController != nil &&
+		*params.ExternalController != currentConfig.Controller.ExternalController {
+		currentConfig.Controller.ExternalController = *params.ExternalController
+		route.ReCreateServer(routeConfig(currentConfig))
+	}
+	if params.Authentication != nil {
+		applyAuthentication(currentConfig, *params.Authentication)
+	}
+
+	updateListeners(currentConfig)
+	for geoType, link := range params.GeoXUrl {
+		setGeoResourceUrl(geoType, link)
+	}
+	syncGeoUpdater(params.GeoAutoUpdate, params.GeoUpdateInterval)
+	if routeChanged {
+		bumpRouteEpoch()
+	}
+	return nil
+}
+
+func applyAuthentication(cfg *config.Config, authentication []string) {
+	users := make([]auth.AuthUser, 0, len(authentication))
+	for _, line := range authentication {
+		if user, pass, found := strings.Cut(line, ":"); found {
+			users = append(users, auth.AuthUser{User: user, Pass: pass})
+		}
+	}
+	cfg.General.Authentication = authentication
+	cfg.Users = users
+	authStore.Default.SetAuthenticator(auth.NewAuthenticator(users))
+	if len(users) > 0 {
+		// A loopback exemption would let any local app bypass the credentials.
+		cfg.General.SkipAuthPrefixes = nil
+		inbound.SetSkipAuthPrefixes(nil)
+	}
+}
+
+func syncGeoUpdater(autoUpdate *bool, interval *int) {
+	changed := false
+	if autoUpdate != nil && *autoUpdate != updater.GeoAutoUpdate() {
+		updater.SetGeoAutoUpdate(*autoUpdate)
+		changed = true
+	}
+	if interval != nil && *interval != updater.GeoUpdateInterval() {
+		updater.SetGeoUpdateInterval(*interval)
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	reconcileGeoUpdater()
+}
+
+var (
+	registerGeoUpdater = updater.RegisterGeoUpdaterWithCancel
+	stopGeoUpdater     = updater.StopGeoUpdater
+)
+
+func reconcileGeoUpdater() {
+	if updater.GeoAutoUpdate() {
+		registerGeoUpdater()
+		return
+	}
+	stopGeoUpdater()
+}
+
+// mihomo writes the NTP time with settimeofday, which Android's app seccomp
+// policy answers by killing the process rather than with EPERM.
+var systemTimeWritable = runtime.GOOS != "android"
+
+func loadConfig(path string) (*config.Config, error) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := executor.ParseWithBytes(buf)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.NTP.WriteToSystem && !systemTimeWritable {
+		log.Warnln("ntp write-to-system ignored: Android does not let apps set the system time")
+		cfg.NTP.WriteToSystem = false
+	}
+	return cfg, nil
+}
+
+func applyConfig(params *SetupParams) error {
+	runtime.GC()
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	setTestURL(params.TestURL)
+	cfg, err := loadConfig(filepath.Join(constant.Path.HomeDir(), "config.yaml"))
+	if err != nil {
+		// The fallback is what keeps the listeners serving while the host
+		// reports the error, but it applies a config with no proxies in it.
+		// From the UI that is indistinguishable from a subscription that went
+		// dead: the profile still lists every node, every delay test answers
+		// Timeout, and nothing routes. Name the real cause in the log.
+		logError(
+			"config apply failed, falling back to the built-in default - no proxies will be available: %v",
+			err,
+		)
+		fallback, fallbackErr := config.ParseRawConfig(config.DefaultRawConfig())
+		if fallbackErr != nil {
+			return err
+		}
+		cfg = fallback
+	}
+
+	currentConfig = cfg
+	hub.ApplyConfig(cfg)
+	patchSelectGroup(params.SelectedMap)
+	bumpRouteEpoch()
+	updateListeners(cfg)
+	reconcileGeoUpdater()
+	return err
+}
+
+func UnmarshalJson(data []byte, v any) error {
+	decoder := json.NewDecoder(b.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(v)
+}
+
+func logError(format string, args ...any) {
+	log.Errorln(format, args...)
+	if debugStderr {
+		fmt.Fprintf(os.Stderr, "[ERROR] "+format+"\n", args...)
 	}
 }

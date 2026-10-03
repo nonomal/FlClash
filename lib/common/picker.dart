@@ -1,40 +1,68 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class Picker {
-  Future<PlatformFile?> pickerConfigFile() async {
-    FilePickerResult? filePickerResult;
-    if (Platform.isAndroid) {
-      filePickerResult = await FilePicker.platform.pickFiles(
-        withData: true,
-        allowMultiple: false,
-      );
-    } else {
-      filePickerResult = await FilePicker.platform.pickFiles(
-        withData: true,
-        type: FileType.custom,
-        allowedExtensions: ['yaml', 'txt', 'conf'],
-      );
+  Future<PlatformFile?> pickerFile() async {
+    return FilePicker.pickFile(initialDirectory: await appPath.downloadDirPath);
+  }
+
+  Future<Uri?> saveFile(String fileName, Uint8List bytes) async {
+    final uri = await FilePicker.saveFile(
+      fileName: fileName,
+      initialDirectory: await appPath.downloadDirPath,
+      bytes: bytes,
+    );
+    if (!system.isAndroid && uri != null && uri.scheme == 'file') {
+      final file = File(uri.toFilePath());
+      await file.safeWriteAsBytes(bytes);
     }
-    final file = filePickerResult?.files.first;
-    if (file == null) {
-      return null;
+    return uri;
+  }
+
+  Future<Uri?> saveFileWithPath(String fileName, String localPath) async {
+    final localFile = File(localPath);
+    if (!await localFile.exists()) {
+      await localFile.create(recursive: true);
     }
-    return file;
+    final bytes = await localFile.readAsBytes();
+    final uri = await FilePicker.saveFile(
+      fileName: fileName,
+      initialDirectory: await appPath.downloadDirPath,
+      bytes: bytes,
+    );
+    await localFile.safeDelete();
+    return uri;
   }
 
   Future<String?> pickerConfigQRCode() async {
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    final bytes = await xFile?.readAsBytes();
-    if (bytes == null) return null;
-    final result = await other.parseQRCode(bytes);
-    if (result == null || !result.isUrl) {
-      throw appLocalizations.pleaseUploadValidQrcode;
+    if (xFile == null) {
+      return null;
     }
-    return result;
+    // Not through a throwaway MobileScannerController: disposing one clears
+    // the platform scan window of a scanner page that is still open.
+    final capture = await MobileScannerPlatform.instance.analyzeImage(
+      xFile.path,
+      formats: const [BarcodeFormat.qrCode],
+    );
+    final url = profileUrlFromQrCodes(
+      capture?.barcodes.map((barcode) => barcode.rawValue) ?? const [],
+    );
+    if (url == null) {
+      throw MessageException(currentAppLocalizations.pleaseUploadValidQrcode);
+    }
+    return url;
+  }
+}
+
+extension PlatformFileExt on PlatformFile {
+  Future<Uint8List> readBytes() {
+    return readAsBytes();
   }
 }
 
